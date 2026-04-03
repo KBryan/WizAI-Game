@@ -239,7 +239,8 @@ export class GameScene extends Phaser.Scene {
     if (Phaser.Input.Keyboard.JustDown(this.attackKey)) {
       this.isAttacking = true;
       this.player.setVelocityX(0);
-      this.changePlayerState('attack');
+      this.playerState = 'attack';
+      this.player.play('player_attack', true); // Force restart even if same anim
       this.attackEnemiesInRange();
       return;
     }
@@ -248,9 +249,9 @@ export class GameScene extends Phaser.Scene {
     if (Phaser.Input.Keyboard.JustDown(this.spellKey) && onGround) {
       this.isAttacking = true;
       this.player.setVelocityX(0);
-      this.playPlayerAnim('player_spell');
       this.playerState = 'spell';
-      this.attackEnemiesInRange(80); // Spell has wider range
+      this.player.play('player_spell', true); // Force restart even if same anim
+      this.attackEnemiesInRange(80);
       return;
     }
 

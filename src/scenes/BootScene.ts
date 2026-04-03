@@ -67,20 +67,19 @@ export class BootScene extends Phaser.Scene {
   private createAnimations(prefix: string, sheet1Key: string, sheet2Key: string): void {
     // Sheet 1 animations (8 cols × 11 rows = 88 frames)
     const sheet1Anims = [
-      { key: `${prefix}_idle`,         start: 0,  end: 7,  frameRate: 10, repeat: -1 },
+      { key: `${prefix}_idle`,         start: 0,  end: 5,  frameRate: 10, repeat: -1 },
       { key: `${prefix}_attack`,       start: 8,  end: 13, frameRate: 12, repeat: 0 },
       { key: `${prefix}_attack_combo`, start: 8,  end: 15, frameRate: 12, repeat: 0 },
       { key: `${prefix}_run`,          start: 16, end: 23, frameRate: 10, repeat: -1 },
       { key: `${prefix}_jump_fly`,     start: 25, end: 25, frameRate: 10, repeat: -1 },
       { key: `${prefix}_fall`,         start: 27, end: 28, frameRate: 10, repeat: -1 },
       { key: `${prefix}_land`,         start: 29, end: 29, frameRate: 10, repeat: 0 },
-      { key: `${prefix}_damage`,       start: 32, end: 35, frameRate: 10, repeat: 0 },
-      { key: `${prefix}_death`,        start: 40, end: 47, frameRate: 10, repeat: 0 },
+      { key: `${prefix}_damage`,       start: 32, end: 39, frameRate: 10, repeat: 0 },
+      { key: `${prefix}_death`,        start: 40, end: 43, frameRate: 10, repeat: 0 },
       { key: `${prefix}_spell`,        start: 48, end: 55, frameRate: 10, repeat: 0 },
-      { key: `${prefix}_crouch`,       start: 56, end: 58, frameRate: 10, repeat: 0 },
-      { key: `${prefix}_shield`,       start: 64, end: 65, frameRate: 5,  repeat: -1 },
+      { key: `${prefix}_crouch`,       start: 56, end: 59, frameRate: 10, repeat: 0 },
+      { key: `${prefix}_shield`,       start: 64, end: 71, frameRate: 5,  repeat: -1 },
     ];
-
     for (const anim of sheet1Anims) {
       this.anims.create({
         key: anim.key,
@@ -93,7 +92,7 @@ export class BootScene extends Phaser.Scene {
     // Sheet 2 animations (8 cols × 7 rows = 56 frames)
     const sheet2Anims = [
       { key: `${prefix}_walk`,          start: 0,  end: 7,  frameRate: 10, repeat: -1 },
-      { key: `${prefix}_wall_slide`,    start: 24, end: 26, frameRate: 10, repeat: -1 },
+      { key: `${prefix}_wall_slide`,    start: 24, end: 27, frameRate: 10, repeat: -1 },
       { key: `${prefix}_critical`,      start: 32, end: 39, frameRate: 10, repeat: 0 },
       { key: `${prefix}_ladder_climb`,  start: 40, end: 47, frameRate: 10, repeat: -1 },
     ];
