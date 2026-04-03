@@ -1,0 +1,50 @@
+{
+  "characters": {
+    "description": "Generic Character v0.2 by brullov",
+    "frameSize": { "width": 56, "height": 56 },
+    "frameDuration": 100,
+    "spacing": 0,
+    "margin": 0,
+    "variants": ["blue", "green", "purple", "red"],
+    "sheets": {
+      "sheet1": {
+        "file": "char_{color}_1.png",
+        "size": { "width": 448, "height": 616 },
+        "grid": { "cols": 8, "rows": 11 },
+        "totalFrames": 88,
+        "animations": {
+          "idle":          { "row": 0, "start": 0,  "end": 7,  "frames": 8, "repeat": -1 },
+          "attack":        { "row": 1, "start": 8,  "end": 13, "frames": 6, "repeat": 0 },
+          "attack_combo":  { "row": 1, "start": 8,  "end": 15, "frames": 8, "repeat": 0 },
+          "run":           { "row": 2, "start": 16, "end": 23, "frames": 8, "repeat": -1 },
+          "jump_prep":     { "row": 3, "start": 24, "end": 24, "frames": 1, "repeat": 0 },
+          "jump_fly":      { "row": 3, "start": 25, "end": 25, "frames": 1, "repeat": 0 },
+          "jump_reload":   { "row": 3, "start": 26, "end": 26, "frames": 1, "repeat": 0 },
+          "fall":          { "row": 3, "start": 27, "end": 28, "frames": 2, "repeat": -1 },
+          "land":          { "row": 3, "start": 29, "end": 29, "frames": 1, "repeat": 0 },
+          "damage":        { "row": 4, "start": 32, "end": 35, "frames": 4, "repeat": 0 },
+          "death":         { "row": 5, "start": 40, "end": 47, "frames": 8, "repeat": 0 },
+          "spell":         { "row": 6, "start": 48, "end": 55, "frames": 8, "repeat": 0 },
+          "crouch":        { "row": 7, "start": 56, "end": 58, "frames": 3, "repeat": 0 },
+          "shield":        { "row": 8, "start": 64, "end": 65, "frames": 2, "repeat": -1 }
+        }
+      },
+      "sheet2": {
+        "file": "char_{color}_2.png",
+        "size": { "width": 448, "height": 392 },
+        "grid": { "cols": 8, "rows": 7 },
+        "totalFrames": 56,
+        "animations": {
+          "walk":           { "row": 0, "start": 0,  "end": 7,  "frames": 8, "repeat": -1 },
+          "slide_start":    { "row": 1, "start": 8,  "end": 9,  "frames": 2, "repeat": 0 },
+          "slide_loop":     { "row": 2, "start": 16, "end": 19, "frames": 4, "repeat": -1 },
+          "slide_end":      { "row": 2, "start": 20, "end": 21, "frames": 2, "repeat": 0 },
+          "wall_slide":     { "row": 3, "start": 24, "end": 26, "frames": 3, "repeat": -1 },
+          "critical":       { "row": 4, "start": 32, "end": 39, "frames": 8, "repeat": 0 },
+          "ladder_climb":   { "row": 5, "start": 40, "end": 47, "frames": 8, "repeat": -1 },
+          "ladder_idle":    { "row": 6, "start": 48, "end": 49, "frames": 2, "repeat": -1 }
+        }
+      }
+    }
+  }
+}
