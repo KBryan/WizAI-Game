@@ -61,7 +61,7 @@ export class BootScene extends Phaser.Scene {
   create(): void {
     this.createAnimations('player', 'char-blue-1', 'char-blue-2');
     this.createAnimations('enemy', 'char-red-1', 'char-red-2');
-    this.scene.start('GameScene');
+    this.scene.start('MenuScene');
   }
 
   private createAnimations(prefix: string, sheet1Key: string, sheet2Key: string): void {
