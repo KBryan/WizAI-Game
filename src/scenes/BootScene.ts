@@ -36,72 +36,72 @@ export class BootScene extends Phaser.Scene {
       loadingText.destroy();
     });
 
-    // Load character sprite sheets - blue (primary player)
+    // Parallax background layers
+    this.load.image('bg-layer1', 'assets/bg/bg_layer1.png');
+    this.load.image('bg-layer2', 'assets/bg/bg_layer2.png');
+    this.load.image('bg-layer3', 'assets/bg/bg_layer3.png');
+
+    // Player sprite sheets (blue)
     this.load.spritesheet('char-blue-1', 'assets/characters/blue/char_blue_1.png', {
-      frameWidth: 56,
-      frameHeight: 56,
+      frameWidth: 56, frameHeight: 56,
     });
     this.load.spritesheet('char-blue-2', 'assets/characters/blue/char_blue_2.png', {
-      frameWidth: 56,
-      frameHeight: 56,
+      frameWidth: 56, frameHeight: 56,
+    });
+
+    // Enemy sprite sheets (red)
+    this.load.spritesheet('char-red-1', 'assets/characters/red/char_red_1.png', {
+      frameWidth: 56, frameHeight: 56,
+    });
+    this.load.spritesheet('char-red-2', 'assets/characters/red/char_red_2.png', {
+      frameWidth: 56, frameHeight: 56,
     });
   }
 
   create(): void {
-    this.createAnimations();
+    this.createAnimations('player', 'char-blue-1', 'char-blue-2');
+    this.createAnimations('enemy', 'char-red-1', 'char-red-2');
     this.scene.start('GameScene');
   }
 
-  private createAnimations(): void {
-    // Sheet 1 animations (char-blue-1: 8 cols × 11 rows = 88 frames)
-    const sheet1Anims: { key: string; start: number; end: number; frameRate: number; repeat: number }[] = [
-      { key: 'idle',         start: 0,  end: 7,  frameRate: 10, repeat: -1 },
-      { key: 'attack',       start: 8,  end: 13, frameRate: 10, repeat: 0 },
-      { key: 'attack_combo', start: 8,  end: 15, frameRate: 10, repeat: 0 },
-      { key: 'run',          start: 16, end: 23, frameRate: 10, repeat: -1 },
-      { key: 'jump_prep',    start: 24, end: 24, frameRate: 10, repeat: 0 },
-      { key: 'jump_fly',     start: 25, end: 25, frameRate: 10, repeat: -1 },
-      { key: 'jump_reload',  start: 26, end: 26, frameRate: 10, repeat: 0 },
-      { key: 'fall',         start: 27, end: 28, frameRate: 10, repeat: -1 },
-      { key: 'land',         start: 29, end: 29, frameRate: 10, repeat: 0 },
-      { key: 'damage',       start: 32, end: 35, frameRate: 10, repeat: 0 },
-      { key: 'death',        start: 40, end: 47, frameRate: 10, repeat: 0 },
-      { key: 'spell',        start: 48, end: 55, frameRate: 10, repeat: 0 },
-      { key: 'crouch',       start: 56, end: 58, frameRate: 10, repeat: 0 },
-      { key: 'shield',       start: 64, end: 65, frameRate: 5,  repeat: -1 },
+  private createAnimations(prefix: string, sheet1Key: string, sheet2Key: string): void {
+    // Sheet 1 animations (8 cols × 11 rows = 88 frames)
+    const sheet1Anims = [
+      { key: `${prefix}_idle`,         start: 0,  end: 7,  frameRate: 10, repeat: -1 },
+      { key: `${prefix}_attack`,       start: 8,  end: 13, frameRate: 12, repeat: 0 },
+      { key: `${prefix}_attack_combo`, start: 8,  end: 15, frameRate: 12, repeat: 0 },
+      { key: `${prefix}_run`,          start: 16, end: 23, frameRate: 10, repeat: -1 },
+      { key: `${prefix}_jump_fly`,     start: 25, end: 25, frameRate: 10, repeat: -1 },
+      { key: `${prefix}_fall`,         start: 27, end: 28, frameRate: 10, repeat: -1 },
+      { key: `${prefix}_land`,         start: 29, end: 29, frameRate: 10, repeat: 0 },
+      { key: `${prefix}_damage`,       start: 32, end: 35, frameRate: 10, repeat: 0 },
+      { key: `${prefix}_death`,        start: 40, end: 47, frameRate: 10, repeat: 0 },
+      { key: `${prefix}_spell`,        start: 48, end: 55, frameRate: 10, repeat: 0 },
+      { key: `${prefix}_crouch`,       start: 56, end: 58, frameRate: 10, repeat: 0 },
+      { key: `${prefix}_shield`,       start: 64, end: 65, frameRate: 5,  repeat: -1 },
     ];
 
     for (const anim of sheet1Anims) {
       this.anims.create({
         key: anim.key,
-        frames: this.anims.generateFrameNumbers('char-blue-1', {
-          start: anim.start,
-          end: anim.end,
-        }),
+        frames: this.anims.generateFrameNumbers(sheet1Key, { start: anim.start, end: anim.end }),
         frameRate: anim.frameRate,
         repeat: anim.repeat,
       });
     }
 
-    // Sheet 2 animations (char-blue-2: 8 cols × 7 rows = 56 frames)
-    const sheet2Anims: { key: string; start: number; end: number; frameRate: number; repeat: number }[] = [
-      { key: 'walk',          start: 0,  end: 7,  frameRate: 10, repeat: -1 },
-      { key: 'slide_start',   start: 8,  end: 9,  frameRate: 10, repeat: 0 },
-      { key: 'slide_loop',    start: 16, end: 19, frameRate: 10, repeat: -1 },
-      { key: 'slide_end',     start: 20, end: 21, frameRate: 10, repeat: 0 },
-      { key: 'wall_slide',    start: 24, end: 26, frameRate: 10, repeat: -1 },
-      { key: 'critical',      start: 32, end: 39, frameRate: 10, repeat: 0 },
-      { key: 'ladder_climb',  start: 40, end: 47, frameRate: 10, repeat: -1 },
-      { key: 'ladder_idle',   start: 48, end: 49, frameRate: 5,  repeat: -1 },
+    // Sheet 2 animations (8 cols × 7 rows = 56 frames)
+    const sheet2Anims = [
+      { key: `${prefix}_walk`,          start: 0,  end: 7,  frameRate: 10, repeat: -1 },
+      { key: `${prefix}_wall_slide`,    start: 24, end: 26, frameRate: 10, repeat: -1 },
+      { key: `${prefix}_critical`,      start: 32, end: 39, frameRate: 10, repeat: 0 },
+      { key: `${prefix}_ladder_climb`,  start: 40, end: 47, frameRate: 10, repeat: -1 },
     ];
 
     for (const anim of sheet2Anims) {
       this.anims.create({
         key: anim.key,
-        frames: this.anims.generateFrameNumbers('char-blue-2', {
-          start: anim.start,
-          end: anim.end,
-        }),
+        frames: this.anims.generateFrameNumbers(sheet2Key, { start: anim.start, end: anim.end }),
         frameRate: anim.frameRate,
         repeat: anim.repeat,
       });
