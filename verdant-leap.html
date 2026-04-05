@@ -16,8 +16,8 @@ body{background:#1a1a2e;display:flex;justify-content:center;align-items:center;m
 'use strict';
 
 /* ============================================================
-   VERDANT LEAP — Phase 1: Core Platformer Mechanics
-   Single-file Phaser 3.55.2 game · 960x540 · Arcade Physics
+   VERDANT LEAP — Phase 2: Enemies, Combat, Scoring & Near-Miss
+   Single-file Phaser 3.55.2 game · 960×540 · Arcade Physics
    ============================================================ */
 
 // ──────────── CONSTANTS ────────────
@@ -33,43 +33,52 @@ var P = {
     WJUMP_V: -520, WJUMP_H: 320,
     COYOTE: 0.08, BUFFER: 0.1,
     GRAV: 1600,
-    C1: 0x79C97A, C2: 0xFFC857, C3: 0x342E37
+    C1: 0x79C97A, C2: 0xFFC857, C3: 0x342E37,
+    HP: 3, INV_DUR: 1.0,
+    KB_X: 200, KB_Y: -150,
+    STOMP_BOUNCE: -350
 };
 
+var EN = {
+    GW: 40, GH: 40, GHP: 2,
+    G_PATROL: 60, G_CHASE: 100,
+    G_CHASE_R: 200, G_ATK_R: 50,
+    G_TEL: 0.35, G_RANGE: 120,
+    FHP: 1, FR: 16,
+    F_SPD: 80, F_AMP: 24, F_PER: 1.2,
+    F_RANGE: 200,
+    COL: 0xFF6B6B, OUT: 0x342E37
+};
+
+var SC = { ORB: 10, STOMP: 25, NMISS: 15, BASE_TIME: 120 };
+var NM = { DIST: 16, CD: 0.5, SLOW: 0.65, SLOW_DUR: 0.18, FLASH_A: 0.18, FLASH_DUR: 140 };
+
 // ──────────── LEVEL DATA ────────────
-var GROUNDS = [
-    [0, 568, 1400, 32],
-    [1850, 568, 1350, 32]
-];
+var GROUNDS = [[0,568,1400,32],[1850,568,1350,32]];
 
 var PLATFORMS = [
-    [200,  460, 150, 20],
-    [450,  400, 130, 20],
-    [680,  330, 140, 20],
-    [1060, 200, 160, 20],
-    [1450, 380, 100, 20],
-    [1620, 320,  90, 20],
-    [1780, 400, 100, 20],
-    [2050, 420, 250, 20],
-    [2400, 350, 130, 20],
-    [2650, 250, 120, 20],
-    [2950, 180, 150, 20],
-    [3100, 400, 100, 20]
+    [200,460,150,20],[450,400,130,20],[680,330,140,20],[1060,200,160,20],
+    [1450,380,100,20],[1620,320,90,20],[1780,400,100,20],[2050,420,250,20],
+    [2400,350,130,20],[2650,250,120,20],[2950,180,150,20],[3100,400,100,20]
 ];
 
-var WALLS = [
-    [940,  220, 24, 348],
-    [1200, 220, 24, 348],
-    [2550, 180, 24, 388],
-    [2780, 130, 24, 438]
-];
+var WALLS = [[940,220,24,348],[1200,220,24,348],[2550,180,24,388],[2780,130,24,438]];
 
 var ORBS = [
-    [250,430],[510,370],[750,300],[1100,170],
-    [1070,350],[1160,300],[1500,350],[1670,290],
-    [1830,370],[2170,390],[2450,320],[2700,220],
-    [3000,150],[3130,370]
+    [250,430],[510,370],[750,300],[1100,170],[1070,350],[1160,300],[1500,350],
+    [1670,290],[1830,370],[2170,390],[2450,320],[2700,220],[3000,150],[3130,370]
 ];
+
+var ENEMY_GND = [[350,500],[800,500],[1100,500],[2100,370],[2900,500],[3060,500]];
+var ENEMY_FLY = [[550,260],[1700,240],[2750,170]];
+
+var SPAWN_ZONES = [
+    {x:1300, data:[{t:'g',x:1470,y:340},{t:'g',x:1640,y:280},{t:'f',x:1550,y:220}]},
+    {x:2350, data:[{t:'g',x:2450,y:500},{t:'g',x:2550,y:500},{t:'f',x:2500,y:180}]}
+];
+
+var CHECKPTS = [[1050,530],[2500,530]];
+var LS_KEY = 'verdant-leap-highscore';
 
 // ================================================================
 //  BOOT SCENE — generate all textures procedurally
@@ -77,101 +86,150 @@ var ORBS = [
 var BootScene = new Phaser.Class({
     Extends: Phaser.Scene,
     initialize: function(){ Phaser.Scene.call(this, 'Boot'); },
-
-    create: function(){
-        this.genTextures();
-        this.scene.start('Menu');
-    },
+    create: function(){ this.genTextures(); this.scene.start('Menu'); },
 
     genTextures: function(){
         var g, ctx, x, y, grad;
 
-        // ── Player 48x64 ──
-        g = this.make.graphics({add: false});
-        g.fillStyle(P.C3); g.fillRoundedRect(0, 0, P.W, P.H, 10);
-        g.fillStyle(P.C1); g.fillRoundedRect(3, 3, P.W - 6, P.H - 6, 8);
-        g.fillStyle(P.C3); g.fillCircle(17, 22, 5); g.fillCircle(33, 22, 5);
-        g.fillStyle(0xFFFFFF); g.fillCircle(19, 20, 2); g.fillCircle(35, 20, 2);
-        g.fillStyle(P.C2); g.fillRoundedRect(8, 40, P.W - 16, 7, 3);
-        g.generateTexture('player', P.W, P.H); g.destroy();
+        // ── Player 48×64 ──
+        g = this.make.graphics({add:false});
+        g.fillStyle(P.C3); g.fillRoundedRect(0,0,P.W,P.H,10);
+        g.fillStyle(P.C1); g.fillRoundedRect(3,3,P.W-6,P.H-6,8);
+        g.fillStyle(P.C3); g.fillCircle(17,22,5); g.fillCircle(33,22,5);
+        g.fillStyle(0xFFFFFF); g.fillCircle(19,20,2); g.fillCircle(35,20,2);
+        g.fillStyle(P.C2); g.fillRoundedRect(8,40,P.W-16,7,3);
+        g.generateTexture('player',P.W,P.H); g.destroy();
 
-        // ── Platform tile 32x20 ──
-        g = this.make.graphics({add: false});
-        g.fillStyle(0x6EA84A); g.fillRect(0, 0, 32, 20);
-        g.fillStyle(0x7DC058); g.fillRect(0, 0, 32, 5);
-        g.fillStyle(0x5D8B3E); g.fillRect(0, 16, 32, 4);
-        g.lineStyle(1, 0x4A7332); g.strokeRect(0, 0, 32, 20);
-        g.generateTexture('platform', 32, 20); g.destroy();
+        // ── Platform 32×20 ──
+        g = this.make.graphics({add:false});
+        g.fillStyle(0x6EA84A); g.fillRect(0,0,32,20);
+        g.fillStyle(0x7DC058); g.fillRect(0,0,32,5);
+        g.fillStyle(0x5D8B3E); g.fillRect(0,16,32,4);
+        g.lineStyle(1,0x4A7332); g.strokeRect(0,0,32,20);
+        g.generateTexture('platform',32,20); g.destroy();
 
-        // ── Ground tile 32x32 ──
-        g = this.make.graphics({add: false});
-        g.fillStyle(0x5A3E28); g.fillRect(0, 0, 32, 32);
-        g.fillStyle(0x4D8C3E); g.fillRect(0, 0, 32, 10);
-        g.fillStyle(0x3D7030); g.fillRect(0, 10, 32, 2);
-        g.generateTexture('ground', 32, 32); g.destroy();
+        // ── Ground 32×32 ──
+        g = this.make.graphics({add:false});
+        g.fillStyle(0x5A3E28); g.fillRect(0,0,32,32);
+        g.fillStyle(0x4D8C3E); g.fillRect(0,0,32,10);
+        g.fillStyle(0x3D7030); g.fillRect(0,10,32,2);
+        g.generateTexture('ground',32,32); g.destroy();
 
-        // ── Wall tile 24x32 ──
-        g = this.make.graphics({add: false});
-        g.fillStyle(0x8B7355); g.fillRect(0, 0, 24, 32);
-        g.lineStyle(1, 0x6B5B45);
-        g.strokeRect(2, 2, 20, 13); g.strokeRect(2, 17, 20, 13);
-        g.generateTexture('wall', 24, 32); g.destroy();
+        // ── Wall 24×32 ──
+        g = this.make.graphics({add:false});
+        g.fillStyle(0x8B7355); g.fillRect(0,0,24,32);
+        g.lineStyle(1,0x6B5B45);
+        g.strokeRect(2,2,20,13); g.strokeRect(2,17,20,13);
+        g.generateTexture('wall',24,32); g.destroy();
 
-        // ── Collectible orb 28x28 ──
-        g = this.make.graphics({add: false});
-        g.fillStyle(P.C2, 0.3); g.fillCircle(14, 14, 14);
-        g.fillStyle(P.C2, 0.6); g.fillCircle(14, 14, 10);
-        g.fillStyle(0xFFD980);  g.fillCircle(14, 14, 7);
-        g.fillStyle(0xFFF5D0);  g.fillCircle(12, 12, 3);
-        g.generateTexture('orb', 28, 28); g.destroy();
+        // ── Orb 28×28 ──
+        g = this.make.graphics({add:false});
+        g.fillStyle(P.C2,0.3); g.fillCircle(14,14,14);
+        g.fillStyle(P.C2,0.6); g.fillCircle(14,14,10);
+        g.fillStyle(0xFFD980); g.fillCircle(14,14,7);
+        g.fillStyle(0xFFF5D0); g.fillCircle(12,12,3);
+        g.generateTexture('orb',28,28); g.destroy();
 
-        // ── Parallax: Sky gradient ──
-        var sky = this.textures.createCanvas('bg_sky', 2, H);
+        // ── Ground Enemy 40×40 ──
+        g = this.make.graphics({add:false});
+        g.fillStyle(EN.OUT); g.fillRect(0,0,EN.GW,EN.GH);
+        g.fillStyle(EN.COL); g.fillRect(2,2,EN.GW-4,EN.GH-4);
+        g.fillStyle(0xFFFFFF); g.fillCircle(12,14,4); g.fillCircle(28,14,4);
+        g.fillStyle(EN.OUT); g.fillCircle(13,14,2); g.fillCircle(29,14,2);
+        g.fillStyle(EN.OUT); g.fillRect(10,28,20,4);
+        g.generateTexture('enemy_gnd',EN.GW,EN.GH); g.destroy();
+
+        // ── Flying Enemy 32×32 ──
+        g = this.make.graphics({add:false});
+        g.fillStyle(EN.COL); g.fillCircle(16,16,EN.FR);
+        g.lineStyle(2,EN.OUT); g.strokeCircle(16,16,EN.FR);
+        g.fillStyle(0xFFFFFF); g.fillCircle(11,14,3); g.fillCircle(21,14,3);
+        g.fillStyle(EN.OUT); g.fillCircle(12,14,1.5); g.fillCircle(22,14,1.5);
+        g.fillStyle(EN.COL,0.8);
+        g.fillTriangle(0,16,5,8,5,24);
+        g.fillTriangle(32,16,27,8,27,24);
+        g.generateTexture('enemy_fly',32,32); g.destroy();
+
+        // ── Heart 20×18 ──
+        g = this.make.graphics({add:false});
+        g.fillStyle(0xFF6B6B);
+        g.fillCircle(6,6,6); g.fillCircle(14,6,6);
+        g.fillTriangle(0,8,10,18,20,8);
+        g.generateTexture('heart',20,18); g.destroy();
+
+        // ── Heart Empty 20×18 ──
+        g = this.make.graphics({add:false});
+        g.fillStyle(0x444444);
+        g.fillCircle(6,6,6); g.fillCircle(14,6,6);
+        g.fillTriangle(0,8,10,18,20,8);
+        g.generateTexture('heart_empty',20,18); g.destroy();
+
+        // ── Checkpoint 20×48 ──
+        g = this.make.graphics({add:false});
+        g.fillStyle(0x8B7355); g.fillRect(6,16,8,32);
+        g.fillStyle(0xAA9977); g.fillRect(2,12,16,6);
+        g.fillStyle(0x555555,0.6); g.fillCircle(10,7,7);
+        g.generateTexture('checkpoint',20,48); g.destroy();
+
+        // ── Checkpoint Active ──
+        g = this.make.graphics({add:false});
+        g.fillStyle(0x8B7355); g.fillRect(6,16,8,32);
+        g.fillStyle(0xAA9977); g.fillRect(2,12,16,6);
+        g.fillStyle(0x79C97A,0.8); g.fillCircle(10,7,7);
+        g.fillStyle(0xAAFFAA,0.4); g.fillCircle(10,7,12);
+        g.generateTexture('checkpoint_on',20,48); g.destroy();
+
+        // ── Particles ──
+        g = this.make.graphics({add:false});
+        g.fillStyle(0xFFFFFF); g.fillRect(0,0,6,6);
+        g.generateTexture('part_sq',6,6); g.destroy();
+
+        g = this.make.graphics({add:false});
+        g.fillStyle(0xFFFFFF); g.fillCircle(3,3,3);
+        g.generateTexture('part_circle',6,6); g.destroy();
+
+        // ── Parallax: Sky ──
+        var sky = this.textures.createCanvas('bg_sky',2,H);
         ctx = sky.getContext();
-        grad = ctx.createLinearGradient(0, 0, 0, H);
-        grad.addColorStop(0, '#6BAED6');
-        grad.addColorStop(0.45, '#A9E3FF');
-        grad.addColorStop(1, '#D6F0FF');
-        ctx.fillStyle = grad; ctx.fillRect(0, 0, 2, H);
+        grad = ctx.createLinearGradient(0,0,0,H);
+        grad.addColorStop(0,'#6BAED6');
+        grad.addColorStop(0.45,'#A9E3FF');
+        grad.addColorStop(1,'#D6F0FF');
+        ctx.fillStyle = grad; ctx.fillRect(0,0,2,H);
         sky.refresh();
 
         // ── Parallax: Hills ──
-        var hills = this.textures.createCanvas('bg_hills', W, H);
-        ctx = hills.getContext(); ctx.clearRect(0, 0, W, H);
-        ctx.fillStyle = '#79C97A'; ctx.beginPath(); ctx.moveTo(0, H);
-        for (x = 0; x <= W; x++) {
-            y = H - 130 + Math.sin(x * 0.006) * 50
-                        + Math.sin(x * 0.015 + 1) * 30
-                        + Math.sin(x * 0.003) * 20;
-            ctx.lineTo(x, y);
+        var hills = this.textures.createCanvas('bg_hills',W,H);
+        ctx = hills.getContext(); ctx.clearRect(0,0,W,H);
+        ctx.fillStyle = '#79C97A'; ctx.beginPath(); ctx.moveTo(0,H);
+        for(x=0;x<=W;x++){
+            y=H-130+Math.sin(x*0.006)*50+Math.sin(x*0.015+1)*30+Math.sin(x*0.003)*20;
+            ctx.lineTo(x,y);
         }
-        ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
-        ctx.fillStyle = '#8DD88D'; ctx.beginPath(); ctx.moveTo(0, H);
-        for (x = 0; x <= W; x++) {
-            y = H - 85 + Math.sin(x * 0.009 + 3) * 35
-                       + Math.sin(x * 0.022 + 1) * 18;
-            ctx.lineTo(x, y);
+        ctx.lineTo(W,H); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#8DD88D'; ctx.beginPath(); ctx.moveTo(0,H);
+        for(x=0;x<=W;x++){
+            y=H-85+Math.sin(x*0.009+3)*35+Math.sin(x*0.022+1)*18;
+            ctx.lineTo(x,y);
         }
-        ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
+        ctx.lineTo(W,H); ctx.closePath(); ctx.fill();
         hills.refresh();
 
         // ── Parallax: Near foliage ──
-        var near = this.textures.createCanvas('bg_near', W, H);
-        ctx = near.getContext(); ctx.clearRect(0, 0, W, H);
-        ctx.fillStyle = '#4D8C3E'; ctx.beginPath(); ctx.moveTo(0, H);
-        for (x = 0; x <= W; x++) {
-            y = H - 65 + Math.sin(x * 0.011 + 2) * 28
-                       + Math.sin(x * 0.028) * 14;
-            ctx.lineTo(x, y);
+        var near = this.textures.createCanvas('bg_near',W,H);
+        ctx = near.getContext(); ctx.clearRect(0,0,W,H);
+        ctx.fillStyle = '#4D8C3E'; ctx.beginPath(); ctx.moveTo(0,H);
+        for(x=0;x<=W;x++){
+            y=H-65+Math.sin(x*0.011+2)*28+Math.sin(x*0.028)*14;
+            ctx.lineTo(x,y);
         }
-        ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
-        ctx.fillStyle = '#3E7230'; ctx.beginPath(); ctx.moveTo(0, H);
-        for (x = 0; x <= W; x++) {
-            y = H - 38 + Math.sin(x * 0.013 + 4) * 18
-                       + Math.sin(x * 0.032 + 2) * 9;
-            ctx.lineTo(x, y);
+        ctx.lineTo(W,H); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#3E7230'; ctx.beginPath(); ctx.moveTo(0,H);
+        for(x=0;x<=W;x++){
+            y=H-38+Math.sin(x*0.013+4)*18+Math.sin(x*0.032+2)*9;
+            ctx.lineTo(x,y);
         }
-        ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
+        ctx.lineTo(W,H); ctx.closePath(); ctx.fill();
         near.refresh();
     }
 });
@@ -187,26 +245,32 @@ var MenuScene = new Phaser.Class({
         var self = this;
         this.cameras.main.setBackgroundColor('#1a1a2e');
 
-        this.add.text(W / 2, 120, 'VERDANT LEAP', {
-            fontSize: '60px', fontFamily: 'Georgia, serif',
-            color: '#79C97A', stroke: '#342E37', strokeThickness: 6
+        this.add.text(W/2,120,'VERDANT LEAP',{
+            fontSize:'60px',fontFamily:'Georgia, serif',
+            color:'#79C97A',stroke:'#342E37',strokeThickness:6
         }).setOrigin(0.5);
 
-        this.add.text(W / 2, 185, 'A Platforming Adventure', {
-            fontSize: '18px', fontFamily: 'Arial', color: '#FFC857'
+        this.add.text(W/2,185,'A Platforming Adventure',{
+            fontSize:'18px',fontFamily:'Arial',color:'#FFC857'
         }).setOrigin(0.5);
 
-        var btn = this.add.text(W / 2, 280, '\u25B6  PLAY', {
-            fontSize: '30px', fontFamily: 'Arial', color: '#fff',
-            backgroundColor: '#79C97A', padding: {x: 32, y: 12}
-        }).setOrigin(0.5).setInteractive({useHandCursor: true});
+        var hi = parseInt(localStorage.getItem(LS_KEY)) || 0;
+        if(hi > 0){
+            this.add.text(W/2,220,'High Score: '+hi,{
+                fontSize:'16px',fontFamily:'Arial',color:'#FFC857'
+            }).setOrigin(0.5);
+        }
 
-        btn.on('pointerover', function(){ btn.setStyle({backgroundColor: '#5DAF5E'}); });
-        btn.on('pointerout',  function(){ btn.setStyle({backgroundColor: '#79C97A'}); });
-        btn.on('pointerdown', function(){ self.scene.start('Game'); });
+        var btn = this.add.text(W/2,280,'\u25B6  PLAY',{
+            fontSize:'30px',fontFamily:'Arial',color:'#fff',
+            backgroundColor:'#79C97A',padding:{x:32,y:12}
+        }).setOrigin(0.5).setInteractive({useHandCursor:true});
+        btn.on('pointerover',function(){btn.setStyle({backgroundColor:'#5DAF5E'});});
+        btn.on('pointerout',function(){btn.setStyle({backgroundColor:'#79C97A'});});
+        btn.on('pointerdown',function(){self.scene.start('Game');});
 
-        this.add.text(W / 2, 375, 'CONTROLS', {
-            fontSize: '18px', fontFamily: 'Arial', color: '#FFC857'
+        this.add.text(W/2,375,'CONTROLS',{
+            fontSize:'18px',fontFamily:'Arial',color:'#FFC857'
         }).setOrigin(0.5);
 
         var lines = [
@@ -214,13 +278,13 @@ var MenuScene = new Phaser.Class({
             'Space / W / Up     :  Jump            K     :  Dash',
             'Down / S           :  Drop Through Platform'
         ];
-        for (var i = 0; i < lines.length; i++) {
-            this.add.text(W / 2, 405 + i * 26, lines[i], {
-                fontSize: '13px', fontFamily: 'Courier New, monospace', color: '#ccc'
+        for(var i=0;i<lines.length;i++){
+            this.add.text(W/2,405+i*26,lines[i],{
+                fontSize:'13px',fontFamily:'Courier New, monospace',color:'#ccc'
             }).setOrigin(0.5);
         }
 
-        this.input.keyboard.on('keydown-SPACE', function(){ self.scene.start('Game'); });
+        this.input.keyboard.on('keydown-SPACE',function(){self.scene.start('Game');});
     }
 });
 
@@ -234,8 +298,10 @@ var GameScene = new Phaser.Class({
     create: function(){
         var self = this;
 
-        // --- Player state ---
+        // ── Player state ──
         this.score        = 0;
+        this.hp           = P.HP;
+        this.invTimer     = 0;
         this.jumpCount    = 0;
         this.coyoteTimer  = 0;
         this.jumpBuf      = 0;
@@ -253,74 +319,104 @@ var GameScene = new Phaser.Class({
         this.dropTimer    = 0;
         this.lookAheadX   = 0;
         this.afterCD      = 0;
+        this.elapsedTime  = 0;
+        this.nearMissCD   = 0;
+        this.slowMoTimer  = 0;
+        this.gameOver     = false;
 
-        // --- Physics world ---
-        this.physics.world.setBounds(0, 0, WW, WH + 400);
+        // Spawn zone runtime state
+        this.szState = [];
+        for(var sz=0;sz<SPAWN_ZONES.length;sz++){
+            this.szState.push({x:SPAWN_ZONES[sz].x,data:SPAWN_ZONES[sz].data,spawned:false,cd:0});
+        }
+
+        // ── Physics world ──
+        this.physics.world.setBounds(0,0,WW,WH+400);
         this.physics.world.gravity.y = 0;
 
-        // --- Parallax backgrounds ---
-        this.bgSky   = this.add.tileSprite(0, 0, W, H, 'bg_sky').setOrigin(0).setScrollFactor(0).setDepth(-30);
-        this.bgHills = this.add.tileSprite(0, 0, W, H, 'bg_hills').setOrigin(0).setScrollFactor(0).setDepth(-20);
-        this.bgNear  = this.add.tileSprite(0, 0, W, H, 'bg_near').setOrigin(0).setScrollFactor(0).setDepth(-10);
+        // ── Parallax ──
+        this.bgSky   = this.add.tileSprite(0,0,W,H,'bg_sky').setOrigin(0).setScrollFactor(0).setDepth(-30);
+        this.bgHills = this.add.tileSprite(0,0,W,H,'bg_hills').setOrigin(0).setScrollFactor(0).setDepth(-20);
+        this.bgNear  = this.add.tileSprite(0,0,W,H,'bg_near').setOrigin(0).setScrollFactor(0).setDepth(-10);
 
-        // --- Ground (solid) ---
+        // ── Ground ──
         this.groundGrp = this.physics.add.staticGroup();
         GROUNDS.forEach(function(g){
-            var s = self.groundGrp.create(g[0] + g[2] / 2, g[1] + g[3] / 2, 'ground');
-            s.setDisplaySize(g[2], g[3]).refreshBody();
+            var s = self.groundGrp.create(g[0]+g[2]/2,g[1]+g[3]/2,'ground');
+            s.setDisplaySize(g[2],g[3]).refreshBody();
         });
 
-        // --- One-way platforms ---
+        // ── Platforms ──
         this.platGrp = this.physics.add.staticGroup();
         PLATFORMS.forEach(function(p){
-            var s = self.platGrp.create(p[0] + p[2] / 2, p[1] + p[3] / 2, 'platform');
-            s.setDisplaySize(p[2], p[3]).refreshBody();
+            var s = self.platGrp.create(p[0]+p[2]/2,p[1]+p[3]/2,'platform');
+            s.setDisplaySize(p[2],p[3]).refreshBody();
         });
 
-        // --- Walls ---
+        // ── Walls ──
         this.wallGrp = this.physics.add.staticGroup();
         WALLS.forEach(function(w){
-            var s = self.wallGrp.create(w[0] + w[2] / 2, w[1] + w[3] / 2, 'wall');
-            s.setDisplaySize(w[2], w[3]).refreshBody();
+            var s = self.wallGrp.create(w[0]+w[2]/2,w[1]+w[3]/2,'wall');
+            s.setDisplaySize(w[2],w[3]).refreshBody();
         });
 
-        // --- Collectible orbs ---
+        // ── Orbs ──
         this.orbGrp = this.physics.add.group();
         ORBS.forEach(function(o){
-            var orb = self.orbGrp.create(o[0], o[1], 'orb');
+            var orb = self.orbGrp.create(o[0],o[1],'orb');
             orb.body.setAllowGravity(false);
             orb.body.setImmovable(true);
             self.tweens.add({
-                targets: orb, y: orb.y - 8,
-                duration: 1000 + Math.random() * 500,
-                yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+                targets:orb,y:orb.y-8,
+                duration:1000+Math.random()*500,
+                yoyo:true,repeat:-1,ease:'Sine.easeInOut'
             });
         });
 
-        // --- Player sprite ---
-        var pl = this.physics.add.sprite(100, 500, 'player');
-        pl.setSize(P.W - 10, P.H - 6).setOffset(5, 3);
+        // ── Enemy groups ──
+        this.gndEnemies = this.physics.add.group();
+        this.flyEnemies = this.physics.add.group();
+
+        ENEMY_GND.forEach(function(e){ self.spawnGroundEnemy(e[0],e[1],false); });
+        ENEMY_FLY.forEach(function(e){ self.spawnFlyingEnemy(e[0],e[1],false); });
+
+        // ── Checkpoints ──
+        this.checkpointObjs = [];
+        CHECKPTS.forEach(function(cp){
+            var c = self.add.image(cp[0],cp[1],'checkpoint').setOrigin(0.5,1).setDepth(2);
+            c.cpActive = false;
+            self.checkpointObjs.push(c);
+        });
+
+        // ── Player ──
+        var pl = this.physics.add.sprite(100,500,'player');
+        pl.setSize(P.W-10,P.H-6).setOffset(5,3);
         pl.body.setGravityY(P.GRAV);
-        pl.body.setMaxVelocity(750, 900);
+        pl.body.setMaxVelocity(750,900);
         pl.setDepth(10);
         this.player = pl;
 
-        // --- Colliders ---
-        this.physics.add.collider(pl, this.groundGrp);
-        this.physics.add.collider(pl, this.wallGrp);
-
-        // One-way platform collider with process callback
-        this.physics.add.collider(pl, this.platGrp, null, function(player, plat){
-            if (self.isDropping) return false;
-            if (player.body.velocity.y < 0) return false;
-            if (player.body.bottom > plat.body.top + 10) return false;
+        // ── Colliders ──
+        this.physics.add.collider(pl,this.groundGrp);
+        this.physics.add.collider(pl,this.wallGrp);
+        this.physics.add.collider(pl,this.platGrp,null,function(player,plat){
+            if(self.isDropping) return false;
+            if(player.body.velocity.y<0) return false;
+            if(player.body.bottom>plat.body.top+10) return false;
             return true;
         });
+        this.physics.add.overlap(pl,this.orbGrp,this.collectOrb,null,this);
 
-        // Orb overlap
-        this.physics.add.overlap(pl, this.orbGrp, this.collectOrb, null, this);
+        // Enemy terrain colliders
+        this.physics.add.collider(this.gndEnemies,this.groundGrp);
+        this.physics.add.collider(this.gndEnemies,this.platGrp);
+        // Flying enemies: no terrain collision
 
-        // --- Input ---
+        // Player vs enemy overlap
+        this.physics.add.overlap(pl,this.gndEnemies,this.handleEnemyContact,null,this);
+        this.physics.add.overlap(pl,this.flyEnemies,this.handleEnemyContact,null,this);
+
+        // ── Input ──
         this.cursors = this.input.keyboard.createCursorKeys();
         this.kShift = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
         this.kW = this.input.keyboard.addKey('W');
@@ -329,66 +425,416 @@ var GameScene = new Phaser.Class({
         this.kD = this.input.keyboard.addKey('D');
         this.kK = this.input.keyboard.addKey('K');
 
-        // Jump-press tracking (for input buffer)
         this.jumpPressed = false;
         var jf = function(){ self.jumpPressed = true; };
-        this.input.keyboard.on('keydown-SPACE', jf);
-        this.input.keyboard.on('keydown-UP',    jf);
-        this.input.keyboard.on('keydown-W',     jf);
+        this.input.keyboard.on('keydown-SPACE',jf);
+        this.input.keyboard.on('keydown-UP',jf);
+        this.input.keyboard.on('keydown-W',jf);
 
-        // --- Camera ---
-        this.cameras.main.setBounds(0, 0, WW, WH);
-        this.cameras.main.startFollow(pl, true, 0.08, 0.08);
-        this.cameras.main.setDeadzone(100, 50);
+        // ── Camera ──
+        this.cameras.main.setBounds(0,0,WW,WH);
+        this.cameras.main.startFollow(pl,true,0.08,0.08);
+        this.cameras.main.setDeadzone(100,50);
 
-        // --- HUD ---
-        this.scoreText = this.add.text(16, 16, 'Score: 0', {
-            fontSize: '20px', fontFamily: 'Arial', color: '#fff',
-            stroke: '#342E37', strokeThickness: 3
+        // ── HUD: Score ──
+        this.scoreText = this.add.text(16,16,'Score: 0',{
+            fontSize:'20px',fontFamily:'Arial',color:'#fff',
+            stroke:'#342E37',strokeThickness:3
         }).setScrollFactor(0).setDepth(100);
 
-        this.dashText = this.add.text(W - 16, 16, 'DASH \u25CF', {
-            fontSize: '16px', fontFamily: 'Arial', color: '#FFC857',
-            stroke: '#342E37', strokeThickness: 2
-        }).setOrigin(1, 0).setScrollFactor(0).setDepth(100);
+        // ── HUD: Timer ──
+        this.timerText = this.add.text(16,42,'Time: 0s',{
+            fontSize:'14px',fontFamily:'Arial',color:'#ccc',
+            stroke:'#342E37',strokeThickness:2
+        }).setScrollFactor(0).setDepth(100);
 
-        this.hintText = this.add.text(W / 2, H - 14,
-            'Arrows/WASD Move | Space Jump | Shift Sprint | K Dash | Down/S Drop', {
-            fontSize: '11px', fontFamily: 'Arial', color: '#fff'
-        }).setOrigin(0.5, 1).setScrollFactor(0).setDepth(100).setAlpha(0.7);
+        // ── HUD: Hearts ──
+        this.heartIcons = [];
+        for(var h=0;h<P.HP;h++){
+            var hrt = this.add.image(W-26-h*26,20,'heart')
+                .setScrollFactor(0).setDepth(100).setOrigin(0.5);
+            this.heartIcons.push(hrt);
+        }
 
-        this.time.delayedCall(6000, function(){
-            self.tweens.add({targets: self.hintText, alpha: 0, duration: 1500});
+        // ── HUD: Dash ──
+        this.dashText = this.add.text(W-16,42,'DASH \u25CF',{
+            fontSize:'16px',fontFamily:'Arial',color:'#FFC857',
+            stroke:'#342E37',strokeThickness:2
+        }).setOrigin(1,0).setScrollFactor(0).setDepth(100);
+
+        // ── HUD: Controls hint ──
+        this.hintText = this.add.text(W/2,H-14,
+            'Arrows/WASD Move | Space Jump | Shift Sprint | K Dash | Down/S Drop',{
+            fontSize:'11px',fontFamily:'Arial',color:'#fff'
+        }).setOrigin(0.5,1).setScrollFactor(0).setDepth(100).setAlpha(0.7);
+
+        this.time.delayedCall(6000,function(){
+            self.tweens.add({targets:self.hintText,alpha:0,duration:1500});
         });
+
+        // ── Screen flash overlay ──
+        this.flashRect = this.add.rectangle(W/2,H/2,W,H,0xFFC857)
+            .setScrollFactor(0).setDepth(200).setAlpha(0);
     },
 
-    // ──────── COLLECT ORB ────────
-    collectOrb: function(player, orb){
+    // ════════════ SPAWN GROUND ENEMY ════════════
+    spawnGroundEnemy: function(x,y,isWave){
+        var e = this.gndEnemies.create(x,y,'enemy_gnd');
+        e.body.setGravityY(P.GRAV);
+        e.body.setBounce(0);
+        e.body.setMaxVelocity(250,900);
+        e.setDepth(8);
+        e.eData = {
+            type:'ground', hp:EN.GHP, state:'patrol',
+            originX:x, dir:1,
+            telTimer:0, atkTimer:0, hitCD:0,
+            isWave:!!isWave
+        };
+        return e;
+    },
+
+    // ════════════ SPAWN FLYING ENEMY ════════════
+    spawnFlyingEnemy: function(x,y,isWave){
+        var e = this.flyEnemies.create(x,y,'enemy_fly');
+        e.body.setAllowGravity(false);
+        e.body.setMaxVelocity(200,200);
+        e.setDepth(8);
+        e.eData = {
+            type:'fly', hp:EN.FHP,
+            originX:x, originY:y,
+            dir:1, osc:Math.random()*Math.PI*2,
+            hitCD:0, isWave:!!isWave
+        };
+        return e;
+    },
+
+    // ════════════ COLLECT ORB ════════════
+    collectOrb: function(player,orb){
         orb.destroy();
-        this.score += 100;
-        this.scoreText.setText('Score: ' + this.score);
-        var t = this.add.text(player.x, player.y - 40, '+100', {
-            fontSize: '16px', color: '#FFC857',
-            stroke: '#342E37', strokeThickness: 2
+        this.addScore(SC.ORB,player.x,player.y-40);
+    },
+
+    // ════════════ ADD SCORE ════════════
+    addScore: function(pts,x,y,label){
+        this.score += pts;
+        this.scoreText.setText('Score: '+this.score);
+        this.showFloating(x,y,label||('+'+pts),'#FFC857');
+    },
+
+    // ════════════ FLOATING TEXT ════════════
+    showFloating: function(x,y,str,color){
+        var t = this.add.text(x,y,str,{
+            fontSize:'16px',fontFamily:'Arial',color:color||'#FFC857',
+            stroke:'#342E37',strokeThickness:2,fontStyle:'bold'
         }).setOrigin(0.5).setDepth(50);
         this.tweens.add({
-            targets: t, y: t.y - 30, alpha: 0, duration: 700,
-            onComplete: function(){ t.destroy(); }
+            targets:t,y:t.y-35,alpha:0,duration:800,
+            onComplete:function(){t.destroy();}
         });
     },
 
-    // ──────── AFTERIMAGE ────────
+    // ════════════ AFTERIMAGE ════════════
     spawnAfterimage: function(){
-        var img = this.add.sprite(this.player.x, this.player.y, 'player');
+        var img = this.add.sprite(this.player.x,this.player.y,'player');
         img.setAlpha(0.35).setFlipX(this.player.flipX).setTint(0xAAFFAA).setDepth(5);
         this.tweens.add({
-            targets: img, alpha: 0, duration: 120,
-            onComplete: function(){ img.destroy(); }
+            targets:img,alpha:0,duration:120,
+            onComplete:function(){img.destroy();}
         });
     },
 
-    // ──────── UPDATE ────────
-    update: function(time, delta){
+    // ════════════ HANDLE ENEMY CONTACT ════════════
+    handleEnemyContact: function(player,enemy){
+        if(this.gameOver || !enemy.active || !enemy.eData) return;
+        if(enemy.eData.hitCD > 0) return;
+
+        // Stomp: player falling + player bottom near enemy top
+        if(player.body.velocity.y > 0 && player.body.bottom <= enemy.body.top + 12){
+            this.hurtEnemy(enemy);
+            player.body.velocity.y = P.STOMP_BOUNCE;
+            this.addScore(SC.STOMP,enemy.x,enemy.y-30);
+            enemy.eData.hitCD = 0.3;
+            return;
+        }
+
+        // Dash through
+        if(this.isDashing){
+            this.hurtEnemy(enemy);
+            enemy.eData.hitCD = 0.3;
+            return;
+        }
+
+        // Enemy damages player
+        if(this.invTimer > 0) return;
+
+        // Ground enemies only damage in attack state
+        if(enemy.eData.type === 'ground' && enemy.eData.state !== 'attack') return;
+
+        this.damagePlayer(enemy);
+    },
+
+    // ════════════ HURT ENEMY ════════════
+    hurtEnemy: function(enemy){
+        if(!enemy.active || !enemy.eData) return;
+        enemy.eData.hp--;
+        enemy.setTintFill(0xFFFFFF);
+        var self = this;
+        this.time.delayedCall(80,function(){
+            if(enemy.active) enemy.clearTint();
+        });
+        if(enemy.eData.hp <= 0) this.killEnemy(enemy);
+    },
+
+    // ════════════ KILL ENEMY ════════════
+    killEnemy: function(enemy){
+        var ex = enemy.x, ey = enemy.y;
+        var count = Phaser.Math.Between(6,8);
+        for(var i=0;i<count;i++){
+            var angle = (i/count)*Math.PI*2;
+            var p = this.add.image(ex,ey,'part_sq').setTint(EN.COL).setDepth(15);
+            var dist = Phaser.Math.Between(30,60);
+            this.tweens.add({
+                targets:p,
+                x:ex+Math.cos(angle)*dist,
+                y:ey+Math.sin(angle)*dist,
+                alpha:0,duration:300,
+                onComplete:(function(pp){return function(){pp.destroy();};})(p)
+            });
+        }
+        enemy.body.enable = false;
+        this.tweens.add({
+            targets:enemy,alpha:0,duration:300,
+            onComplete:function(){enemy.destroy();}
+        });
+    },
+
+    // ════════════ DAMAGE PLAYER ════════════
+    damagePlayer: function(enemy){
+        if(this.invTimer > 0 || this.gameOver) return;
+        this.hp--;
+        this.updateHearts();
+        this.invTimer = P.INV_DUR;
+
+        var dir = (this.player.x < enemy.x) ? -1 : 1;
+        this.player.body.velocity.x = dir * P.KB_X;
+        this.player.body.velocity.y = P.KB_Y;
+
+        this.cameras.main.shake(150,0.008);
+
+        if(this.hp <= 0) this.triggerGameOver();
+    },
+
+    // ════════════ UPDATE HEARTS ════════════
+    updateHearts: function(){
+        for(var i=0;i<this.heartIcons.length;i++){
+            this.heartIcons[i].setTexture(i < this.hp ? 'heart' : 'heart_empty');
+        }
+    },
+
+    // ════════════ TRIGGER GAME OVER ════════════
+    triggerGameOver: function(){
+        if(this.gameOver) return;
+        this.gameOver = true;
+        this.player.setTint(0xFF6B6B);
+        this.physics.pause();
+        var self = this;
+        this.cameras.main.shake(300,0.015);
+        this.time.delayedCall(800,function(){
+            self.scene.start('GameOver',{
+                score:self.score,
+                time:Math.floor(self.elapsedTime)
+            });
+        });
+    },
+
+    // ════════════ BODY GAP (min distance between rectangles) ════════════
+    bodyGap: function(a,b){
+        var acx = a.x+a.width/2, acy = a.y+a.height/2;
+        var bcx = b.x+b.width/2, bcy = b.y+b.height/2;
+        var dx = Math.max(0,Math.abs(acx-bcx)-(a.width+b.width)/2);
+        var dy = Math.max(0,Math.abs(acy-bcy)-(a.height+b.height)/2);
+        return Math.sqrt(dx*dx+dy*dy);
+    },
+
+    // ════════════ CHECK NEAR-MISS ════════════
+    checkNearMiss: function(){
+        if(this.nearMissCD > 0) return;
+        var pl = this.player;
+        var bod = pl.body;
+        var inAir = !bod.blocked.down && !bod.touching.down;
+        if(!this.isDashing && !inAir) return;
+
+        var all = this.gndEnemies.getChildren().concat(this.flyEnemies.getChildren());
+        for(var i=0;i<all.length;i++){
+            var e = all[i];
+            if(!e.active || !e.body || !e.body.enable) continue;
+            var gap = this.bodyGap(bod,e.body);
+            if(gap > 0 && gap <= NM.DIST){
+                this.triggerNearMiss(pl.x,pl.y);
+                return;
+            }
+        }
+    },
+
+    // ════════════ TRIGGER NEAR-MISS ════════════
+    triggerNearMiss: function(x,y){
+        this.nearMissCD = NM.CD;
+        this.addScore(SC.NMISS,x,y-40,'+'+SC.NMISS+' Near Miss!');
+
+        // Slow-mo
+        this.slowMoTimer = NM.SLOW_DUR;
+
+        // Screen flash
+        this.flashRect.setAlpha(NM.FLASH_A);
+        this.tweens.add({targets:this.flashRect,alpha:0,duration:NM.FLASH_DUR});
+
+        // Starburst particles
+        for(var i=0;i<6;i++){
+            var angle = (i/6)*Math.PI*2;
+            var p = this.add.image(x,y,'part_circle').setTint(0xFFC857).setDepth(50);
+            this.tweens.add({
+                targets:p,
+                x:x+Math.cos(angle)*40,
+                y:y+Math.sin(angle)*40,
+                alpha:0,scaleX:0.3,scaleY:0.3,
+                duration:350,
+                onComplete:(function(pp){return function(){pp.destroy();};})(p)
+            });
+        }
+    },
+
+    // ════════════ UPDATE GROUND ENEMIES ════════════
+    updateGroundEnemies: function(dt){
+        var px = this.player.x, py = this.player.y;
+        this.gndEnemies.getChildren().forEach(function(e){
+            if(!e.active || !e.eData) return;
+            var d = e.eData;
+            if(d.hitCD > 0) d.hitCD -= dt;
+
+            var dx = px - e.x;
+            var dist = Math.abs(dx);
+            var distY = Math.abs(py - e.y);
+
+            if(d.state === 'telegraph'){
+                d.telTimer -= dt;
+                e.body.velocity.x = 0;
+                e.setTint(0xFF9944);
+                if(d.telTimer <= 0){
+                    d.state = 'attack';
+                    d.atkTimer = 0.3;
+                    e.body.velocity.x = (dx > 0 ? 1 : -1) * EN.G_CHASE * 2;
+                    e.body.velocity.y = -200;
+                    e.setTint(0xFF4444);
+                }
+                return;
+            }
+
+            if(d.state === 'attack'){
+                d.atkTimer -= dt;
+                if(d.atkTimer <= 0){
+                    d.state = 'patrol';
+                    e.clearTint();
+                }
+                return;
+            }
+
+            if(dist < EN.G_CHASE_R && distY < 100){
+                if(dist < EN.G_ATK_R && distY < 60){
+                    d.state = 'telegraph';
+                    d.telTimer = EN.G_TEL;
+                    e.body.velocity.x = 0;
+                    return;
+                }
+                d.state = 'chase';
+                e.body.velocity.x = (dx > 0 ? 1 : -1) * EN.G_CHASE;
+                e.setFlipX(dx < 0);
+                e.clearTint();
+            } else {
+                d.state = 'patrol';
+                e.clearTint();
+                var distOrig = e.x - d.originX;
+                if(Math.abs(distOrig) > EN.G_RANGE) d.dir = distOrig > 0 ? -1 : 1;
+                e.body.velocity.x = d.dir * EN.G_PATROL;
+                e.setFlipX(d.dir < 0);
+            }
+        });
+    },
+
+    // ════════════ UPDATE FLYING ENEMIES ════════════
+    updateFlyingEnemies: function(dt){
+        var omega = 2*Math.PI/EN.F_PER;
+        this.flyEnemies.getChildren().forEach(function(e){
+            if(!e.active || !e.eData) return;
+            var d = e.eData;
+            if(d.hitCD > 0) d.hitCD -= dt;
+            d.osc += dt;
+
+            var distOrig = e.x - d.originX;
+            if(Math.abs(distOrig) > EN.F_RANGE) d.dir = distOrig > 0 ? -1 : 1;
+            e.body.velocity.x = d.dir * EN.F_SPD;
+            e.body.velocity.y = EN.F_AMP * omega * Math.cos(d.osc * omega);
+            e.setFlipX(d.dir < 0);
+        });
+    },
+
+    // ════════════ UPDATE SPAWN ZONES ════════════
+    updateSpawnZones: function(dt){
+        var px = this.player.x;
+        var self = this;
+        for(var i=0;i<this.szState.length;i++){
+            var zone = this.szState[i];
+            if(zone.cd > 0) zone.cd -= dt;
+            if(px >= zone.x && px <= zone.x+60 && !zone.spawned && zone.cd <= 0){
+                zone.spawned = true;
+                zone.cd = 6;
+                zone.data.forEach(function(ed){
+                    if(ed.t === 'g') self.spawnGroundEnemy(ed.x,ed.y,true);
+                    else self.spawnFlyingEnemy(ed.x,ed.y,true);
+                });
+            }
+            if(zone.spawned && zone.cd <= 0 && (px < zone.x-100 || px > zone.x+160)){
+                zone.spawned = false;
+            }
+        }
+    },
+
+    // ════════════ DESPAWN OFF-CAMERA WAVE ENEMIES ════════════
+    despawnOffCamera: function(){
+        var camL = this.cameras.main.scrollX - 220;
+        var camR = this.cameras.main.scrollX + W + 220;
+        var check = function(e){
+            if(e.active && e.eData && e.eData.isWave){
+                if(e.x < camL || e.x > camR) e.destroy();
+            }
+        };
+        this.gndEnemies.getChildren().forEach(check);
+        this.flyEnemies.getChildren().forEach(check);
+    },
+
+    // ════════════ CHECK CHECKPOINTS ════════════
+    checkCheckpoints: function(){
+        var px = this.player.x, py = this.player.y;
+        for(var i=0;i<this.checkpointObjs.length;i++){
+            var c = this.checkpointObjs[i];
+            if(!c.cpActive && Math.abs(px-c.x)<30 && Math.abs(py-c.y)<60){
+                c.cpActive = true;
+                c.setTexture('checkpoint_on');
+                if(this.hp < P.HP){
+                    this.hp++;
+                    this.updateHearts();
+                    this.showFloating(c.x,c.y-60,'+1 HP','#79C97A');
+                }
+                this.tweens.add({
+                    targets:c,scaleX:1.2,scaleY:1.2,
+                    duration:200,yoyo:true,ease:'Quad.easeOut'
+                });
+            }
+        }
+    },
+
+    // ════════════ UPDATE ════════════
+    update: function(time,delta){
+        if(this.gameOver) return;
         var dt  = delta / 1000;
         var pl  = this.player;
         var bod = pl.body;
@@ -397,22 +843,43 @@ var GameScene = new Phaser.Class({
         var touchL   = bod.blocked.left  || bod.touching.left;
         var touchR   = bod.blocked.right || bod.touching.right;
 
+        // ── Slow-mo ──
+        if(this.slowMoTimer > 0){
+            this.slowMoTimer -= dt;
+            this.physics.world.timeScale = NM.SLOW;
+        } else {
+            this.physics.world.timeScale = 1;
+        }
+
+        // ── Elapsed timer ──
+        this.elapsedTime += dt;
+
         // ── Kill plane ──
-        if (pl.y > WH + 200) {
-            this.scene.start('GameOver', {score: this.score});
+        if(pl.y > WH + 200){
+            this.triggerGameOver();
             return;
         }
 
+        // ── Invincibility blink ──
+        if(this.invTimer > 0){
+            this.invTimer -= dt;
+            pl.setAlpha(Math.sin(time * 0.02) > 0 ? 1 : 0.3);
+            if(this.invTimer <= 0){
+                pl.setAlpha(1);
+                this.invTimer = 0;
+            }
+        }
+
         // ── Landing squash ──
-        if (onGround && !this.prevGround) {
+        if(onGround && !this.prevGround){
             this.tweens.add({
-                targets: pl, scaleX: 1.08, scaleY: 0.88,
-                duration: 80, yoyo: true, ease: 'Quad.easeOut'
+                targets:pl,scaleX:1.08,scaleY:0.88,
+                duration:80,yoyo:true,ease:'Quad.easeOut'
             });
         }
 
         // ── Coyote time & ground resets ──
-        if (onGround) {
+        if(onGround){
             this.coyoteTimer = P.COYOTE;
             this.jumpCount   = 0;
             this.dashReady   = true;
@@ -421,33 +888,34 @@ var GameScene = new Phaser.Class({
         }
 
         // ── Jump input buffer ──
-        if (this.jumpPressed) {
+        if(this.jumpPressed){
             this.jumpBuf = P.BUFFER;
             this.jumpPressed = false;
         }
         this.jumpBuf -= dt;
 
         // ── Drop through platforms ──
-        if ((this.cursors.down.isDown || this.kS.isDown) && onGround) {
+        if((this.cursors.down.isDown || this.kS.isDown) && onGround){
             this.isDropping = true;
             this.dropTimer  = 0.2;
         }
-        if (this.isDropping) {
+        if(this.isDropping){
             this.dropTimer -= dt;
-            if (this.dropTimer <= 0) this.isDropping = false;
+            if(this.dropTimer <= 0) this.isDropping = false;
         }
 
         // ── Decrement timers ──
         this.dashCD       -= dt;
         this.wallJumpLock -= dt;
         this.afterCD      -= dt;
+        this.nearMissCD   -= dt;
 
         // ════════════════════════════
         //  DASH
         // ════════════════════════════
-        if (!this.isDashing
+        if(!this.isDashing
             && Phaser.Input.Keyboard.JustDown(this.kK)
-            && this.dashReady && this.dashCD <= 0) {
+            && this.dashReady && this.dashCD <= 0){
             this.isDashing  = true;
             this.dashTimer  = P.DASH_DUR;
             this.dashDir    = this.facingRight ? 1 : -1;
@@ -457,20 +925,20 @@ var GameScene = new Phaser.Class({
             bod.setGravityY(0);
             bod.velocity.y = 0;
             this.tweens.add({
-                targets: pl, scaleX: 1.2, scaleY: 0.85,
-                duration: 60, yoyo: true, ease: 'Quad.easeOut'
+                targets:pl,scaleX:1.2,scaleY:0.85,
+                duration:60,yoyo:true,ease:'Quad.easeOut'
             });
         }
 
-        if (this.isDashing) {
+        if(this.isDashing){
             bod.velocity.x = P.DASH_SPD * this.dashDir;
             bod.velocity.y = 0;
             this.dashTimer -= dt;
-            if (this.afterCD <= 0) {
+            if(this.afterCD <= 0){
                 this.spawnAfterimage();
                 this.afterCD = 0.033;
             }
-            if (this.dashTimer <= 0) {
+            if(this.dashTimer <= 0){
                 this.isDashing = false;
                 bod.setGravityY(P.GRAV);
             }
@@ -480,19 +948,19 @@ var GameScene = new Phaser.Class({
         // ════════════════════════════
         else {
             this.isWallGrab = false;
-            if (!onGround) {
+            if(!onGround){
                 var pressL = this.cursors.left.isDown  || this.kA.isDown;
                 var pressR = this.cursors.right.isDown || this.kD.isDown;
-                if (touchL && pressL) {
+                if(touchL && pressL){
                     this.isWallGrab = true; this.wallDir = -1;
-                } else if (touchR && pressR) {
+                } else if(touchR && pressR){
                     this.isWallGrab = true; this.wallDir = 1;
                 }
             }
 
-            if (this.isWallGrab) {
+            if(this.isWallGrab){
                 bod.setGravityY(P.GRAV * P.WALL_GRAV);
-                if (bod.velocity.y > 80) bod.velocity.y = 80;
+                if(bod.velocity.y > 80) bod.velocity.y = 80;
                 this.jumpCount   = 0;
                 this.coyoteTimer = P.COYOTE;
                 this.dashReady   = true;
@@ -502,23 +970,23 @@ var GameScene = new Phaser.Class({
 
             // ════════════════════════════
             //  HORIZONTAL MOVEMENT
-            // ═════════���══════════════════
-            if (this.wallJumpLock <= 0) {
+            // ════════════════════════════
+            if(this.wallJumpLock <= 0){
                 var left  = this.cursors.left.isDown  || this.kA.isDown;
                 var right = this.cursors.right.isDown || this.kD.isDown;
                 var spd   = this.kShift.isDown ? P.SPRINT : P.RUN;
 
-                if (left && !right) {
+                if(left && !right){
                     bod.velocity.x = -spd;
                     this.facingRight = false;
                     pl.setFlipX(true);
-                } else if (right && !left) {
+                } else if(right && !left){
                     bod.velocity.x = spd;
                     this.facingRight = true;
                     pl.setFlipX(false);
                 } else {
                     bod.velocity.x *= onGround ? 0.78 : 0.92;
-                    if (Math.abs(bod.velocity.x) < 8) bod.velocity.x = 0;
+                    if(Math.abs(bod.velocity.x) < 8) bod.velocity.x = 0;
                 }
             }
         }
@@ -526,10 +994,9 @@ var GameScene = new Phaser.Class({
         // ════════════════════════════
         //  JUMP / DOUBLE-JUMP / WALL-JUMP
         // ════════════════════════════
-        if (this.jumpBuf > 0 && !this.isDashing) {
+        if(this.jumpBuf > 0 && !this.isDashing){
 
-            if (this.isWallGrab) {
-                // Wall jump
+            if(this.isWallGrab){
                 bod.velocity.y = P.WJUMP_V;
                 bod.velocity.x = P.WJUMP_H * (-this.wallDir);
                 this.wallJumpLock = 0.15;
@@ -541,29 +1008,27 @@ var GameScene = new Phaser.Class({
                 pl.setFlipX(!this.facingRight);
                 bod.setGravityY(P.GRAV);
                 this.tweens.add({
-                    targets: pl, scaleX: 1.06, scaleY: 0.92,
-                    duration: 80, yoyo: true, ease: 'Quad.easeOut'
+                    targets:pl,scaleX:1.06,scaleY:0.92,
+                    duration:80,yoyo:true,ease:'Quad.easeOut'
                 });
 
-            } else if (this.jumpCount === 0 && (onGround || this.coyoteTimer > 0)) {
-                // First jump
+            } else if(this.jumpCount === 0 && (onGround || this.coyoteTimer > 0)){
                 bod.velocity.y   = P.JUMP;
                 this.jumpCount   = 1;
                 this.jumpBuf     = 0;
                 this.coyoteTimer = 0;
                 this.tweens.add({
-                    targets: pl, scaleX: 1.06, scaleY: 0.92,
-                    duration: 80, yoyo: true, ease: 'Quad.easeOut'
+                    targets:pl,scaleX:1.06,scaleY:0.92,
+                    duration:80,yoyo:true,ease:'Quad.easeOut'
                 });
 
-            } else if (this.jumpCount === 1) {
-                // Double jump
+            } else if(this.jumpCount === 1){
                 bod.velocity.y = P.DJUMP;
                 this.jumpCount = 2;
                 this.jumpBuf   = 0;
                 this.tweens.add({
-                    targets: pl, scaleX: 1.06, scaleY: 0.92,
-                    duration: 80, yoyo: true, ease: 'Quad.easeOut'
+                    targets:pl,scaleX:1.06,scaleY:0.92,
+                    duration:80,yoyo:true,ease:'Quad.easeOut'
                 });
             }
         }
@@ -584,13 +1049,41 @@ var GameScene = new Phaser.Class({
         this.cameras.main.setFollowOffset(-this.lookAheadX, 0);
 
         // ════════════════════════════
+        //  ENEMY AI
+        // ════════════════════════════
+        this.updateGroundEnemies(dt);
+        this.updateFlyingEnemies(dt);
+
+        // ════════════════════════════
+        //  NEAR-MISS CHECK
+        // ════════════════════════════
+        this.checkNearMiss();
+
+        // ════════════════════════════
+        //  SPAWN ZONES
+        // ════════════════════════════
+        this.updateSpawnZones(dt);
+
+        // ════════════════════════════
+        //  DESPAWN OFF-CAMERA
+        // ════════════════════════════
+        this.despawnOffCamera();
+
+        // ════════════════════════════
+        //  CHECKPOINTS
+        // ════════════════════════════
+        this.checkCheckpoints();
+
+        // ════════════════════════════
         //  HUD UPDATE
         // ════════════════════════════
-        if (this.dashReady && this.dashCD <= 0) {
+        if(this.dashReady && this.dashCD <= 0){
             this.dashText.setText('DASH \u25CF').setColor('#FFC857');
         } else {
             this.dashText.setText('DASH \u25CB').setColor('#666666');
         }
+
+        this.timerText.setText('Time: '+Math.floor(this.elapsedTime)+'s');
 
         this.prevGround = onGround;
     }
@@ -607,32 +1100,72 @@ var GameOverScene = new Phaser.Class({
         var self = this;
         this.cameras.main.setBackgroundColor('#1a1a2e');
 
-        this.add.text(W / 2, 160, 'GAME OVER', {
-            fontSize: '52px', fontFamily: 'Georgia, serif',
-            color: '#FF6B6B', stroke: '#342E37', strokeThickness: 5
+        var score   = data.score || 0;
+        var elapsed = data.time  || 0;
+        var timeBonus = Math.floor(Math.max(0, SC.BASE_TIME - elapsed) / 2);
+        var finalScore = score + timeBonus;
+
+        var prevHi  = parseInt(localStorage.getItem(LS_KEY)) || 0;
+        var isNewHi = finalScore > prevHi;
+        var hi      = isNewHi ? finalScore : prevHi;
+        if(isNewHi) localStorage.setItem(LS_KEY, String(hi));
+
+        this.add.text(W/2,80,'GAME OVER',{
+            fontSize:'52px',fontFamily:'Georgia, serif',
+            color:'#FF6B6B',stroke:'#342E37',strokeThickness:5
         }).setOrigin(0.5);
 
-        this.add.text(W / 2, 240, 'Score: ' + (data.score || 0), {
-            fontSize: '26px', fontFamily: 'Arial', color: '#FFC857'
+        this.add.text(W/2,155,'Score: '+score,{
+            fontSize:'24px',fontFamily:'Arial',color:'#fff'
         }).setOrigin(0.5);
 
-        var btn = this.add.text(W / 2, 330, '\u21BB  RETRY', {
-            fontSize: '26px', fontFamily: 'Arial', color: '#fff',
-            backgroundColor: '#79C97A', padding: {x: 28, y: 10}
-        }).setOrigin(0.5).setInteractive({useHandCursor: true});
-        btn.on('pointerover', function(){ btn.setStyle({backgroundColor: '#5DAF5E'}); });
-        btn.on('pointerout',  function(){ btn.setStyle({backgroundColor: '#79C97A'}); });
-        btn.on('pointerdown', function(){ self.scene.start('Game'); });
+        if(timeBonus > 0){
+            this.add.text(W/2,185,'Time Bonus: +'+timeBonus,{
+                fontSize:'18px',fontFamily:'Arial',color:'#79C97A'
+            }).setOrigin(0.5);
+        }
 
-        var mbtn = this.add.text(W / 2, 400, 'MENU', {
-            fontSize: '18px', fontFamily: 'Arial', color: '#aaa',
-            padding: {x: 16, y: 6}
-        }).setOrigin(0.5).setInteractive({useHandCursor: true});
-        mbtn.on('pointerover', function(){ mbtn.setColor('#fff'); });
-        mbtn.on('pointerout',  function(){ mbtn.setColor('#aaa'); });
-        mbtn.on('pointerdown', function(){ self.scene.start('Menu'); });
+        this.add.text(W/2,220,'Final Score: '+finalScore,{
+            fontSize:'26px',fontFamily:'Arial',color:'#FFC857',fontStyle:'bold'
+        }).setOrigin(0.5);
 
-        this.input.keyboard.on('keydown-SPACE', function(){
+        this.add.text(W/2,255,'Time: '+elapsed+'s',{
+            fontSize:'16px',fontFamily:'Arial',color:'#ccc'
+        }).setOrigin(0.5);
+
+        this.add.text(W/2,280,'High Score: '+hi,{
+            fontSize:'18px',fontFamily:'Arial',color:'#FFC857'
+        }).setOrigin(0.5);
+
+        if(isNewHi && finalScore > 0){
+            var nhText = this.add.text(W/2,315,'\u2605 New High Score! \u2605',{
+                fontSize:'22px',fontFamily:'Georgia, serif',
+                color:'#FFD700',stroke:'#342E37',strokeThickness:3
+            }).setOrigin(0.5);
+            this.tweens.add({
+                targets:nhText,scaleX:1.1,scaleY:1.1,
+                duration:500,yoyo:true,repeat:-1,ease:'Sine.easeInOut'
+            });
+        }
+
+        var btnY = isNewHi ? 370 : 340;
+        var btn = this.add.text(W/2,btnY,'\u21BB  RETRY',{
+            fontSize:'26px',fontFamily:'Arial',color:'#fff',
+            backgroundColor:'#79C97A',padding:{x:28,y:10}
+        }).setOrigin(0.5).setInteractive({useHandCursor:true});
+        btn.on('pointerover',function(){btn.setStyle({backgroundColor:'#5DAF5E'});});
+        btn.on('pointerout',function(){btn.setStyle({backgroundColor:'#79C97A'});});
+        btn.on('pointerdown',function(){self.scene.start('Game');});
+
+        var mbtn = this.add.text(W/2,btnY+60,'MENU',{
+            fontSize:'18px',fontFamily:'Arial',color:'#aaa',
+            padding:{x:16,y:6}
+        }).setOrigin(0.5).setInteractive({useHandCursor:true});
+        mbtn.on('pointerover',function(){mbtn.setColor('#fff');});
+        mbtn.on('pointerout',function(){mbtn.setColor('#aaa');});
+        mbtn.on('pointerdown',function(){self.scene.start('Menu');});
+
+        this.input.keyboard.on('keydown-SPACE',function(){
             self.scene.start('Game');
         });
     }
@@ -648,7 +1181,7 @@ new Phaser.Game({
     backgroundColor: '#A9E3FF',
     physics: {
         default: 'arcade',
-        arcade: { gravity: {y: 0}, debug: false }
+        arcade: { gravity: {y:0}, debug: false }
     },
     scale: {
         mode: Phaser.Scale.FIT,
