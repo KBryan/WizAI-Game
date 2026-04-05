@@ -60,6 +60,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
+    // Apply debug physics setting from localStorage
+    try {
+      const raw = localStorage.getItem('wizai_settings');
+      if (raw) {
+        const settings = JSON.parse(raw);
+        this.physics.world.drawDebug = settings.debugPhysics ?? false;
+        if (!settings.debugPhysics) this.physics.world.debugGraphic?.clear();
+      }
+    } catch { /* ignore */ }
+
     const height = this.cameras.main.height;
     const groundY = height - this.GROUND_Y_OFFSET;
 

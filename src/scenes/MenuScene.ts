@@ -10,6 +10,8 @@ export class MenuScene extends Phaser.Scene {
   private playerSprite!: Phaser.GameObjects.Sprite;
   private playButton!: Phaser.GameObjects.Container;
   private titleFloatTween!: Phaser.Tweens.Tween;
+  private settingsContainer!: Phaser.GameObjects.Container;
+  private settingsOpen = false;
 
   constructor() {
     super({ key: 'MenuScene' });
@@ -199,7 +201,7 @@ export class MenuScene extends Phaser.Scene {
 
     // Settings icon (left)
     const settingsBtn = this.createIconButton(40, iconY, '⚙', 15, () => {
-      // Future: settings modal
+      if (!this.settingsOpen) this.showSettings();
     });
 
     // Info text
@@ -232,6 +234,149 @@ export class MenuScene extends Phaser.Scene {
       this.particleGfx.fillStyle(0xaaccff, p.alpha);
       this.particleGfx.fillCircle(p.x, p.y, p.size);
     }
+  }
+
+  private showSettings(): void {
+    this.settingsOpen = true;
+    const { width, height } = this.cameras.main;
+    this.settingsContainer = this.add.container(width / 2, height / 2).setDepth(50);
+
+    // Dim overlay
+    const dimOverlay = this.add.graphics();
+    dimOverlay.fillStyle(0x000000, 0.6);
+    dimOverlay.fillRect(-width / 2, -height / 2, width, height);
+    this.settingsContainer.add(dimOverlay);
+
+    // Panel
+    const panelW = 320;
+    const panelH = 260;
+    const panel = this.add.graphics();
+    panel.fillStyle(0x1a1a3a, 0.95);
+    panel.fillRoundedRect(-panelW / 2, -panelH / 2, panelW, panelH, 16);
+    panel.lineStyle(2, 0x5566aa, 0.8);
+    panel.strokeRoundedRect(-panelW / 2, -panelH / 2, panelW, panelH, 16);
+    this.settingsContainer.add(panel);
+
+    // Title
+    const title = this.add.text(0, -panelH / 2 + 28, 'Settings', {
+      fontFamily: 'Georgia, serif',
+      fontSize: '28px',
+      color: '#f0c060',
+      fontStyle: 'bold',
+      stroke: '#5a2d00',
+      strokeThickness: 4,
+    }).setOrigin(0.5);
+    this.settingsContainer.add(title);
+
+    // Load saved settings
+    const settings = this.loadSettings();
+
+    // Toggles
+    const startY = -40;
+    const gap = 50;
+    this.createToggle('Music', 0, startY, settings.music, (val) => {
+      settings.music = val;
+      this.saveSettings(settings);
+    });
+    this.createToggle('SFX', 0, startY + gap, settings.sfx, (val) => {
+      settings.sfx = val;
+      this.saveSettings(settings);
+    });
+    this.createToggle('Debug Physics', 0, startY + gap * 2, settings.debugPhysics, (val) => {
+      settings.debugPhysics = val;
+      this.saveSettings(settings);
+    });
+
+    // Close button
+    const closeBtnW = 120;
+    const closeBtnH = 40;
+    const closeBtnY = panelH / 2 - 40;
+    const closeBtn = this.add.graphics();
+    closeBtn.fillStyle(0x443366, 1);
+    closeBtn.fillRoundedRect(-closeBtnW / 2, closeBtnY - closeBtnH / 2, closeBtnW, closeBtnH, 8);
+    closeBtn.lineStyle(1, 0x8866bb, 0.6);
+    closeBtn.strokeRoundedRect(-closeBtnW / 2, closeBtnY - closeBtnH / 2, closeBtnW, closeBtnH, 8);
+    this.settingsContainer.add(closeBtn);
+
+    const closeText = this.add.text(0, closeBtnY, 'Close', {
+      fontFamily: 'Georgia, serif',
+      fontSize: '18px',
+      color: '#ffffff',
+      fontStyle: 'bold',
+    }).setOrigin(0.5);
+    this.settingsContainer.add(closeText);
+
+    const closeHit = this.add.zone(0, closeBtnY, closeBtnW, closeBtnH).setInteractive({ useHandCursor: true });
+    closeHit.on('pointerover', () => closeText.setColor('#ffdd88'));
+    closeHit.on('pointerout', () => closeText.setColor('#ffffff'));
+    closeHit.on('pointerdown', () => this.hideSettings());
+    this.settingsContainer.add(closeHit);
+
+    // Scale in
+    this.settingsContainer.setScale(0.8).setAlpha(0);
+    this.tweens.add({
+      targets: this.settingsContainer,
+      scaleX: 1, scaleY: 1, alpha: 1,
+      duration: 200,
+      ease: 'Back.easeOut',
+    });
+  }
+
+  private hideSettings(): void {
+    this.tweens.add({
+      targets: this.settingsContainer,
+      scaleX: 0.8, scaleY: 0.8, alpha: 0,
+      duration: 150,
+      ease: 'Power2',
+      onComplete: () => {
+        this.settingsContainer.destroy();
+        this.settingsOpen = false;
+      },
+    });
+  }
+
+  private createToggle(label: string, x: number, y: number, initial: boolean, onChange: (val: boolean) => void): void {
+    let isOn = initial;
+    const labelText = this.add.text(x - 80, y, label, {
+      fontFamily: 'Georgia, serif',
+      fontSize: '16px',
+      color: '#ccccee',
+    }).setOrigin(0, 0.5);
+    this.settingsContainer.add(labelText);
+
+    const toggleBg = this.add.graphics();
+    const toggleX = x + 90;
+    const drawToggle = () => {
+      toggleBg.clear();
+      toggleBg.fillStyle(isOn ? 0x44aa66 : 0x444466, 1);
+      toggleBg.fillRoundedRect(toggleX - 22, y - 12, 44, 24, 12);
+      toggleBg.fillStyle(0xffffff, 1);
+      toggleBg.fillCircle(isOn ? toggleX + 12 : toggleX - 12, y, 9);
+    };
+    drawToggle();
+    this.settingsContainer.add(toggleBg);
+
+    const toggleHit = this.add.zone(toggleX, y, 50, 30).setInteractive({ useHandCursor: true });
+    toggleHit.on('pointerdown', () => {
+      isOn = !isOn;
+      drawToggle();
+      onChange(isOn);
+    });
+    this.settingsContainer.add(toggleHit);
+  }
+
+  private loadSettings(): { music: boolean; sfx: boolean; debugPhysics: boolean } {
+    try {
+      const raw = localStorage.getItem('wizai_settings');
+      if (raw) return JSON.parse(raw);
+    } catch { /* ignore */ }
+    return { music: true, sfx: true, debugPhysics: false };
+  }
+
+  private saveSettings(settings: { music: boolean; sfx: boolean; debugPhysics: boolean }): void {
+    try {
+      localStorage.setItem('wizai_settings', JSON.stringify(settings));
+    } catch { /* ignore */ }
   }
 
   private createIconButton(x: number, y: number, icon: string, size: number, onClick: () => void): Phaser.GameObjects.Container {
