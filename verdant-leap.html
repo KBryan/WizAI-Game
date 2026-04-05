@@ -16,7 +16,7 @@ body{background:#1a1a2e;display:flex;justify-content:center;align-items:center;m
 'use strict';
 
 /* ============================================================
-   VERDANT LEAP — Phase 2: Enemies, Combat, Scoring & Near-Miss
+   VERDANT LEAP — Phase 3: Screen Effects, Juice & Polish
    Single-file Phaser 3.55.2 game · 960×540 · Arcade Physics
    ============================================================ */
 
@@ -52,6 +52,20 @@ var EN = {
 
 var SC = { ORB: 10, STOMP: 25, NMISS: 15, BASE_TIME: 120 };
 var NM = { DIST: 16, CD: 0.5, SLOW: 0.65, SLOW_DUR: 0.18, FLASH_A: 0.18, FLASH_DUR: 140 };
+// Phase 3: Juice & Polish constants
+var PH3 = {
+    JUMP_SQY:0.92,JUMP_SQX:1.06,JUMP_IN:40,JUMP_OUT:120,
+    LAND_SQY:0.88,LAND_SQX:1.08,LAND_IN:120,LAND_OUT:160,
+    SHAKE_AMP:6,SHAKE_DUR:350,ZOOM_AMT:1.05,ZOOM_DUR:250,
+    D_FREEZE:120,D_FADE:400,D_DELAY:600,D_SHARDS:8,
+    D_DESAT:0.65,D_DESAT_DUR:280,D_SHAKE:4,D_SHAKE_DUR:280,
+    INT_T1:200,INT_T2:500,INT_T3:1000,
+    BOB_AMP:2,BOB_SPD:0.002,BLINK_MIN:3000,BLINK_MAX:5000,
+    BIRD_MIN:6000,BIRD_MAX:12000,MOTE_CNT:12,
+    MS_INT:250,MS_SLIDE:220,MS_STAY:1500,
+    MAX_PARTS:100,DENIED_DUR:60
+};
+
 
 // ──────────── LEVEL DATA ────────────
 var GROUNDS = [[0,568,1400,32],[1850,568,1350,32]];
@@ -188,6 +202,16 @@ var BootScene = new Phaser.Class({
         g.fillStyle(0xFFFFFF); g.fillCircle(3,3,3);
         g.generateTexture('part_circle',6,6); g.destroy();
 
+        // Phase 3 textures
+        g = this.make.graphics({add:false});
+        g.fillStyle(0xFF6B00); g.fillRoundedRect(3,0,6,13,2); g.fillCircle(6,17,3);
+        g.generateTexture('exclam',12,20); g.destroy();
+
+        g = this.make.graphics({add:false});
+        g.fillStyle(0xFFFFFF); g.fillTriangle(4,0,8,8,0,6);
+        g.generateTexture('shard',8,8); g.destroy();
+
+
         // ── Parallax: Sky ──
         var sky = this.textures.createCanvas('bg_sky',2,H);
         ctx = sky.getContext();
@@ -244,6 +268,7 @@ var MenuScene = new Phaser.Class({
     create: function(){
         var self = this;
         this.cameras.main.setBackgroundColor('#1a1a2e');
+        this.cameras.main.fadeIn(180);
 
         this.add.text(W/2,120,'VERDANT LEAP',{
             fontSize:'60px',fontFamily:'Georgia, serif',
@@ -324,6 +349,22 @@ var GameScene = new Phaser.Class({
         this.slowMoTimer  = 0;
         this.gameOver     = false;
 
+        // Phase 3 state
+        this.intensityLevel = 0;
+        this.nearMissChain  = [];
+        this.lastMilestone  = 0;
+        this.particles      = [];
+        this.motes          = [];
+        this.birds          = [];
+        this.idleTimer      = 0;
+        this.blinkTimer     = 3000+Math.random()*2000;
+        this.birdTimer      = 6000+Math.random()*6000;
+        this.dashDeniedTimer= 0;
+        this.prevScore      = 0;
+        this.enemySpeedMult = 1.0;
+        this._dashWasReady  = false;
+        this._deathActive   = false;
+
         // Spawn zone runtime state
         this.szState = [];
         for(var sz=0;sz<SPAWN_ZONES.length;sz++){
@@ -369,6 +410,11 @@ var GameScene = new Phaser.Class({
             self.tweens.add({
                 targets:orb,y:orb.y-8,
                 duration:1000+Math.random()*500,
+                yoyo:true,repeat:-1,ease:'Sine.easeInOut'
+            });
+            self.tweens.add({
+                targets:orb,alpha:0.7,
+                duration:800+Math.random()*400,
                 yoyo:true,repeat:-1,ease:'Sine.easeInOut'
             });
         });
@@ -475,6 +521,45 @@ var GameScene = new Phaser.Class({
         // ── Screen flash overlay ──
         this.flashRect = this.add.rectangle(W/2,H/2,W,H,0xFFC857)
             .setScrollFactor(0).setDepth(200).setAlpha(0);
+
+        // Vignette overlay
+        var vg = this.add.graphics().setScrollFactor(0).setDepth(195).setAlpha(0);
+        vg.fillStyle(0x000000,0.8); vg.fillRect(0,0,60,H); vg.fillRect(W-60,0,60,H);
+        vg.fillRect(0,0,W,40); vg.fillRect(0,H-40,W,40);
+        vg.fillStyle(0x000000,0.4); vg.fillRect(60,0,40,H); vg.fillRect(W-100,0,40,H);
+        vg.fillRect(0,40,W,30); vg.fillRect(0,H-70,W,30);
+        this.vignetteOverlay = vg;
+
+        // Desaturate overlay
+        this.desatOverlay = this.add.rectangle(W/2,H/2,W,H,0x000000)
+            .setScrollFactor(0).setDepth(190).setAlpha(0);
+
+        // Milestone banner
+        this.msBannerBg = this.add.rectangle(W+200,H/2-60,280,50,0x000000,0.7)
+            .setScrollFactor(0).setDepth(210).setOrigin(0.5);
+        this.msBannerTxt = this.add.text(W+200,H/2-60,'',{
+            fontSize:'22px',fontFamily:'Georgia, serif',
+            color:'#FFC857',stroke:'#342E37',strokeThickness:3
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(211);
+
+        // Intensity glow overlay
+        this.glowOverlay = this.add.rectangle(W/2,H/2,W,H,0xFFC857)
+            .setScrollFactor(0).setDepth(85).setAlpha(0);
+
+        // Ambient motes
+        for(var m=0;m<PH3.MOTE_CNT;m++){
+            var mx=Math.random()*W,my=Math.random()*H;
+            var mote=this.add.image(mx,my,'part_circle')
+                .setTint(Phaser.Math.RND.pick([0xFFFFFF,0xC8E6FF,0xE0F0FF]))
+                .setAlpha(0.15+Math.random()*0.2)
+                .setScale(0.3+Math.random()*0.4)
+                .setDepth(-5).setScrollFactor(0);
+            this.motes.push({obj:mote,vx:-8+Math.random()*16,vy:3+Math.random()*8});
+        }
+
+        // Scene fade-in
+        this.cameras.main.fadeIn(180);
+
     },
 
     // ════════════ SPAWN GROUND ENEMY ════════════
@@ -510,19 +595,29 @@ var GameScene = new Phaser.Class({
 
     // ════════════ COLLECT ORB ════════════
     collectOrb: function(player,orb){
+        var ox=orb.x,oy=orb.y;
         orb.destroy();
         this.addScore(SC.ORB,player.x,player.y-40);
+        var n=4+Math.floor(Math.random()*3);
+        for(var i=0;i<n;i++){
+            var a=(i/n)*Math.PI*2+Math.random()*0.5;
+            this.spawnParticle(ox,oy,Math.cos(a)*60+Math.random()*30,
+                Math.sin(a)*60-20,0.5,0xFFC857,0.6+Math.random()*0.4,
+                {gravity:200,shape:'circle',depth:45});
+        }
     },
 
-    // ════════════ ADD SCORE ════════════
-    addScore: function(pts,x,y,label){
+        addScore: function(pts,x,y,label){
         this.score += pts;
         this.scoreText.setText('Score: '+this.score);
         this.showFloating(x,y,label||('+'+pts),'#FFC857');
+        var st=this.scoreText;
+        this.tweens.add({targets:st,scaleX:1.2,scaleY:1.2,duration:75,
+            yoyo:true,ease:'Quad.easeOut',
+            onComplete:function(){st.setScale(1);}});
     },
 
-    // ════════════ FLOATING TEXT ════════════
-    showFloating: function(x,y,str,color){
+        showFloating: function(x,y,str,color){
         var t = this.add.text(x,y,str,{
             fontSize:'16px',fontFamily:'Arial',color:color||'#FFC857',
             stroke:'#342E37',strokeThickness:2,fontStyle:'bold'
@@ -587,6 +682,7 @@ var GameScene = new Phaser.Class({
 
     // ════════════ KILL ENEMY ════════════
     killEnemy: function(enemy){
+        if(enemy.eData&&enemy.eData.exclam){enemy.eData.exclam.destroy();enemy.eData.exclam=null;}
         var ex = enemy.x, ey = enemy.y;
         var count = Phaser.Math.Between(6,8);
         for(var i=0;i<count;i++){
@@ -619,7 +715,7 @@ var GameScene = new Phaser.Class({
         this.player.body.velocity.x = dir * P.KB_X;
         this.player.body.velocity.y = P.KB_Y;
 
-        this.cameras.main.shake(150,0.008);
+        this.cameras.main.shake(PH3.SHAKE_DUR,PH3.SHAKE_AMP/1000*(1+this.intensityLevel*0.25));
 
         if(this.hp <= 0) this.triggerGameOver();
     },
@@ -635,20 +731,48 @@ var GameScene = new Phaser.Class({
     triggerGameOver: function(){
         if(this.gameOver) return;
         this.gameOver = true;
-        this.player.setTint(0xFF6B6B);
+        this._deathActive = true;
+        var self=this,pl=this.player,px=pl.x,py=pl.y;
         this.physics.pause();
-        var self = this;
-        this.cameras.main.shake(300,0.015);
-        this.time.delayedCall(800,function(){
-            self.scene.start('GameOver',{
-                score:self.score,
-                time:Math.floor(self.elapsedTime)
+        // 1. Freeze
+        this.time.delayedCall(PH3.D_FREEZE,function(){
+            // 2. Shard particles
+            var cols=[P.C1,P.C2,P.C3,0x5DAF5E,0xFFD47D];
+            for(var i=0;i<PH3.D_SHARDS;i++){
+                var ang=(i/PH3.D_SHARDS)*Math.PI*2;
+                var dist=50+Math.random()*60;
+                var sh=self.add.image(px,py,'shard')
+                    .setTint(cols[i%cols.length]).setDepth(55)
+                    .setScale(0.7+Math.random()*0.5);
+                (function(s,a,d){
+                    self.tweens.add({targets:s,
+                        x:px+Math.cos(a)*d,y:py+Math.sin(a)*d-20,
+                        alpha:0,rotation:Math.random()*3,
+                        duration:600,ease:'Quad.easeOut',
+                        onComplete:function(){s.destroy();}});
+                })(sh,ang,dist);
+            }
+            // 3. Player fade + flatten
+            self.tweens.add({targets:pl,scaleY:0.3,alpha:0,
+                duration:PH3.D_FADE,ease:'Quad.easeIn'});
+            // 4. Desaturate overlay
+            self.desatOverlay.setAlpha(0);
+            self.tweens.add({targets:self.desatOverlay,alpha:PH3.D_DESAT,
+                duration:PH3.D_DESAT_DUR});
+            // 5. Camera shake
+            self.cameras.main.shake(PH3.D_SHAKE_DUR,PH3.D_SHAKE/1000);
+            // 6. Vignette
+            self.tweens.add({targets:self.vignetteOverlay,alpha:0.7,duration:400});
+            // 7. Transition
+            self.time.delayedCall(PH3.D_FADE+PH3.D_DELAY,function(){
+                self.scene.start('GameOver',{
+                    score:self.score,time:Math.floor(self.elapsedTime)
+                });
             });
         });
     },
 
-    // ════════════ BODY GAP (min distance between rectangles) ════════════
-    bodyGap: function(a,b){
+        bodyGap: function(a,b){
         var acx = a.x+a.width/2, acy = a.y+a.height/2;
         var bcx = b.x+b.width/2, bcy = b.y+b.height/2;
         var dx = Math.max(0,Math.abs(acx-bcx)-(a.width+b.width)/2);
@@ -680,55 +804,60 @@ var GameScene = new Phaser.Class({
     triggerNearMiss: function(x,y){
         this.nearMissCD = NM.CD;
         this.addScore(SC.NMISS,x,y-40,'+'+SC.NMISS+' Near Miss!');
-
         // Slow-mo
         this.slowMoTimer = NM.SLOW_DUR;
-
         // Screen flash
         this.flashRect.setAlpha(NM.FLASH_A);
         this.tweens.add({targets:this.flashRect,alpha:0,duration:NM.FLASH_DUR});
-
-        // Starburst particles
-        for(var i=0;i<6;i++){
-            var angle = (i/6)*Math.PI*2;
-            var p = this.add.image(x,y,'part_circle').setTint(0xFFC857).setDepth(50);
-            this.tweens.add({
-                targets:p,
-                x:x+Math.cos(angle)*40,
-                y:y+Math.sin(angle)*40,
-                alpha:0,scaleX:0.3,scaleY:0.3,
-                duration:350,
-                onComplete:(function(pp){return function(){pp.destroy();};})(p)
-            });
+        // Starburst particles (doubled at intensity 2+)
+        var cnt = 6+(this.intensityLevel>=2?6:0);
+        for(var i=0;i<cnt;i++){
+            var angle=(i/cnt)*Math.PI*2;
+            this.spawnParticle(x,y,Math.cos(angle)*60,Math.sin(angle)*60-20,
+                0.4,0xFFC857,0.5,{gravity:80,depth:50});
+        }
+        // Chain tracking for zoom pulse (3 in 4 sec)
+        var now=Date.now();
+        this.nearMissChain.push(now);
+        this.nearMissChain=this.nearMissChain.filter(function(t){return now-t<4000;});
+        if(this.nearMissChain.length>=3){
+            this.triggerZoomPulse();
+            this.nearMissChain=[];
         }
     },
 
-    // ════════════ UPDATE GROUND ENEMIES ════════════
-    updateGroundEnemies: function(dt){
+        updateGroundEnemies: function(dt){
+        var self=this;
         var px = this.player.x, py = this.player.y;
+        var spdMult = this.enemySpeedMult;
         this.gndEnemies.getChildren().forEach(function(e){
             if(!e.active || !e.eData) return;
             var d = e.eData;
             if(d.hitCD > 0) d.hitCD -= dt;
-
             var dx = px - e.x;
             var dist = Math.abs(dx);
             var distY = Math.abs(py - e.y);
-
             if(d.state === 'telegraph'){
                 d.telTimer -= dt;
                 e.body.velocity.x = 0;
                 e.setTint(0xFF9944);
+                var psc=1.0+0.08*Math.sin((EN.G_TEL-d.telTimer)*20);
+                e.setScale(psc);
+                if(!d.exclam){
+                    d.exclam=self.add.image(e.x,e.y-30,'exclam').setDepth(20);
+                }
+                if(d.exclam) d.exclam.setPosition(e.x,e.y-30);
                 if(d.telTimer <= 0){
+                    if(d.exclam){d.exclam.destroy();d.exclam=null;}
+                    e.setScale(1);
                     d.state = 'attack';
                     d.atkTimer = 0.3;
-                    e.body.velocity.x = (dx > 0 ? 1 : -1) * EN.G_CHASE * 2;
+                    e.body.velocity.x = (dx>0?1:-1)*EN.G_CHASE*2*spdMult;
                     e.body.velocity.y = -200;
                     e.setTint(0xFF4444);
                 }
                 return;
             }
-
             if(d.state === 'attack'){
                 d.atkTimer -= dt;
                 if(d.atkTimer <= 0){
@@ -737,7 +866,6 @@ var GameScene = new Phaser.Class({
                 }
                 return;
             }
-
             if(dist < EN.G_CHASE_R && distY < 100){
                 if(dist < EN.G_ATK_R && distY < 60){
                     d.state = 'telegraph';
@@ -746,38 +874,36 @@ var GameScene = new Phaser.Class({
                     return;
                 }
                 d.state = 'chase';
-                e.body.velocity.x = (dx > 0 ? 1 : -1) * EN.G_CHASE;
+                e.body.velocity.x = (dx>0?1:-1)*EN.G_CHASE*spdMult;
                 e.setFlipX(dx < 0);
                 e.clearTint();
             } else {
                 d.state = 'patrol';
                 e.clearTint();
                 var distOrig = e.x - d.originX;
-                if(Math.abs(distOrig) > EN.G_RANGE) d.dir = distOrig > 0 ? -1 : 1;
-                e.body.velocity.x = d.dir * EN.G_PATROL;
+                if(Math.abs(distOrig) > EN.G_RANGE) d.dir = distOrig>0?-1:1;
+                e.body.velocity.x = d.dir*EN.G_PATROL*spdMult;
                 e.setFlipX(d.dir < 0);
             }
         });
     },
 
-    // ════════════ UPDATE FLYING ENEMIES ════════════
     updateFlyingEnemies: function(dt){
         var omega = 2*Math.PI/EN.F_PER;
+        var spdMult = this.enemySpeedMult;
         this.flyEnemies.getChildren().forEach(function(e){
             if(!e.active || !e.eData) return;
             var d = e.eData;
             if(d.hitCD > 0) d.hitCD -= dt;
             d.osc += dt;
-
             var distOrig = e.x - d.originX;
-            if(Math.abs(distOrig) > EN.F_RANGE) d.dir = distOrig > 0 ? -1 : 1;
-            e.body.velocity.x = d.dir * EN.F_SPD;
-            e.body.velocity.y = EN.F_AMP * omega * Math.cos(d.osc * omega);
+            if(Math.abs(distOrig) > EN.F_RANGE) d.dir = distOrig>0?-1:1;
+            e.body.velocity.x = d.dir*EN.F_SPD*spdMult;
+            e.body.velocity.y = EN.F_AMP*omega*Math.cos(d.osc*omega);
             e.setFlipX(d.dir < 0);
         });
     },
 
-    // ════════════ UPDATE SPAWN ZONES ════════════
     updateSpawnZones: function(dt){
         var px = this.player.x;
         var self = this;
@@ -832,7 +958,199 @@ var GameScene = new Phaser.Class({
         }
     },
 
-    // ════════════ UPDATE ════════════
+    // ======== PARTICLE SYSTEM ========
+    spawnParticle: function(x,y,vx,vy,life,col,sz,o){
+        if(this.particles.length>=PH3.MAX_PARTS)return;
+        o=o||{};
+        var key=o.shape==='circle'?'part_circle':'part_sq';
+        var obj=this.add.image(x,y,key)
+            .setTint(col).setDepth(o.depth||45).setScale(sz||1);
+        this.particles.push({obj:obj,x:x,y:y,vx:vx,vy:vy,
+            life:life,ml:life,grav:o.gravity||0,shrink:o.shrink!==false});
+    },
+
+    updateCustomParticles: function(dt){
+        for(var i=this.particles.length-1;i>=0;i--){
+            var p=this.particles[i];
+            p.life-=dt;
+            if(p.life<=0){p.obj.destroy();this.particles.splice(i,1);continue;}
+            p.vy+=p.grav*dt;
+            p.x+=p.vx*dt; p.y+=p.vy*dt;
+            var ratio=p.life/p.ml;
+            p.obj.setPosition(p.x,p.y).setAlpha(ratio);
+            if(p.shrink) p.obj.setScale(ratio*0.8+0.2);
+        }
+    },
+
+    // ======== ZOOM PULSE ========
+    triggerZoomPulse: function(){
+        var cam=this.cameras.main;
+        this.tweens.add({targets:cam,zoom:PH3.ZOOM_AMT,
+            duration:PH3.ZOOM_DUR/2,yoyo:true,ease:'Quad.easeOut',
+            onComplete:function(){cam.zoom=1;}});
+    },
+
+    // ======== MILESTONE CHECK ========
+    checkMilestones: function(){
+        var ms=Math.floor(this.score/PH3.MS_INT)*PH3.MS_INT;
+        if(ms>0 && ms>this.lastMilestone){
+            this.lastMilestone=ms;
+            this.showMilestoneBanner('Milestone! '+ms+'pts');
+            // Check high score
+            var hi=parseInt(localStorage.getItem(LS_KEY))||0;
+            if(this.score>hi){
+                this.showHighScoreCelebration();
+            }
+            // Particle burst
+            for(var i=0;i<12;i++){
+                var a=(i/12)*Math.PI*2;
+                this.spawnParticle(this.player.x,this.player.y-30,
+                    Math.cos(a)*80,Math.sin(a)*80-40,
+                    0.6,0xFFC857,0.5,{gravity:150,shape:'circle',depth:55});
+            }
+            // Camera bump
+            this.cameras.main.shake(150,0.002);
+        }
+    },
+
+    showMilestoneBanner: function(txt){
+        var self=this;
+        this.msBannerTxt.setText(txt);
+        var targetX=W/2;
+        this.msBannerBg.x=W+200; this.msBannerTxt.x=W+200;
+        this.tweens.add({targets:[this.msBannerBg,this.msBannerTxt],
+            x:targetX,duration:PH3.MS_SLIDE,ease:'Quad.easeOut',
+            onComplete:function(){
+                self.time.delayedCall(PH3.MS_STAY,function(){
+                    self.tweens.add({targets:[self.msBannerBg,self.msBannerTxt],
+                        x:-200,duration:PH3.MS_SLIDE,ease:'Quad.easeIn'});
+                });
+            }});
+    },
+
+    showHighScoreCelebration: function(){
+        // Confetti shower
+        var cols=[0xFFC857,0xFF6B6B,0x79C97A,0x6BAED6,0xFFD700,0xFF69B4];
+        for(var i=0;i<24;i++){
+            this.spawnParticle(
+                this.player.x-80+Math.random()*160,
+                this.player.y-100,
+                -40+Math.random()*80,
+                -120-Math.random()*80,
+                0.8+Math.random()*0.4,
+                cols[i%cols.length],
+                0.4+Math.random()*0.4,
+                {gravity:250,shape:Math.random()>0.5?'circle':'sq',depth:56});
+        }
+        // Slow-mo for high score
+        this.slowMoTimer=0.4;
+    },
+
+    // ======== PROGRESSIVE INTENSITY ========
+    updateIntensity: function(){
+        var prev=this.intensityLevel;
+        if(this.score>=PH3.INT_T3) this.intensityLevel=3;
+        else if(this.score>=PH3.INT_T2) this.intensityLevel=2;
+        else if(this.score>=PH3.INT_T1) this.intensityLevel=1;
+        else this.intensityLevel=0;
+
+        // Enemy speed scaling
+        if(this.score>=1000) this.enemySpeedMult=1.15;
+        else if(this.score>=500) this.enemySpeedMult=1.10;
+        else this.enemySpeedMult=1.0;
+
+        // Vignette at intensity 1+
+        var targetVig=this.intensityLevel>=1?0.15+this.intensityLevel*0.05:0;
+        if(!this._deathActive){
+            this.vignetteOverlay.setAlpha(
+                this.vignetteOverlay.alpha+(targetVig-this.vignetteOverlay.alpha)*0.05);
+        }
+
+        // Glow at intensity 1+
+        var targetGlow=this.intensityLevel>=1?0.02+this.intensityLevel*0.01:0;
+        this.glowOverlay.setAlpha(
+            this.glowOverlay.alpha+(targetGlow-this.glowOverlay.alpha)*0.05);
+
+        // Warm color shift at intensity 3
+        if(this.intensityLevel>=3){
+            this.glowOverlay.setFillStyle(0xFFD47D);
+        }
+    },
+
+    // ======== IDLE LIFE ========
+    updateIdleLife: function(dt,time,onGround){
+        var pl=this.player,bod=pl.body;
+        var moving=Math.abs(bod.velocity.x)>10||Math.abs(bod.velocity.y)>10;
+
+        if(!moving && onGround && !this.isDashing){
+            this.idleTimer+=dt;
+            // Breathing bob
+            var bob=Math.sin(time*PH3.BOB_SPD)*PH3.BOB_AMP;
+            pl.y+=bob*dt*60;
+            // Blinking
+            this.blinkTimer-=dt*1000;
+            if(this.blinkTimer<=0){
+                this.blinkTimer=PH3.BLINK_MIN+Math.random()*(PH3.BLINK_MAX-PH3.BLINK_MIN);
+                this.tweens.add({targets:pl,scaleX:0.95,duration:60,
+                    yoyo:true,ease:'Quad.easeInOut'});
+            }
+        } else {
+            this.idleTimer=0;
+        }
+
+        // Ambient motes
+        for(var m=0;m<this.motes.length;m++){
+            var mt=this.motes[m];
+            mt.obj.x+=mt.vx*dt; mt.obj.y+=mt.vy*dt;
+            if(mt.obj.x<-10) mt.obj.x=W+10;
+            if(mt.obj.x>W+10) mt.obj.x=-10;
+            if(mt.obj.y>H+10){mt.obj.y=-10;mt.obj.x=Math.random()*W;}
+        }
+
+        // Birds
+        this.birdTimer-=dt*1000;
+        if(this.birdTimer<=0){
+            this.birdTimer=PH3.BIRD_MIN+Math.random()*(PH3.BIRD_MAX-PH3.BIRD_MIN);
+            var by=20+Math.random()*60;
+            var bdir=Math.random()>0.5?1:-1;
+            var bx=bdir>0?-20:W+20;
+            var bird=this.add.graphics().setScrollFactor(0).setDepth(-8);
+            bird.fillStyle(0x2A2A3A,0.6);
+            bird.fillTriangle(0,4,6,0,12,4);
+            bird.fillTriangle(12,4,18,0,24,4);
+            bird.setPosition(bx,by);
+            this.birds.push({obj:bird,vx:bdir*15+Math.random()*10,life:20});
+        }
+        for(var b=this.birds.length-1;b>=0;b--){
+            var br=this.birds[b];
+            br.obj.x+=br.vx*dt;
+            br.life-=dt;
+            if(br.life<=0||br.obj.x<-40||br.obj.x>W+40){
+                br.obj.destroy();this.birds.splice(b,1);
+            }
+        }
+    },
+
+    // ======== DASH DENIED ========
+    handleDashDenied: function(){
+        if(this.dashDeniedTimer>0) return;
+        this.dashDeniedTimer=PH3.DENIED_DUR/1000;
+        // Flash dash text
+        var dt=this.dashText;
+        dt.setColor('#FF4444');
+        var self=this;
+        this.time.delayedCall(PH3.DENIED_DUR,function(){dt.setColor('#666666');});
+        // Small camera nudge
+        this.cameras.main.shake(PH3.DENIED_DUR,0.001);
+    },
+
+    // ======== DASH READY PULSE ========
+    pulseDashIcon: function(){
+        this.tweens.add({targets:this.dashText,scaleX:1.15,scaleY:1.15,
+            duration:150,yoyo:true,ease:'Quad.easeOut',
+            onComplete:function(tw,t){t[0].setScale(1);}});
+    },
+
     update: function(time,delta){
         if(this.gameOver) return;
         var dt  = delta / 1000;
@@ -873,8 +1191,12 @@ var GameScene = new Phaser.Class({
         // ── Landing squash ──
         if(onGround && !this.prevGround){
             this.tweens.add({
-                targets:pl,scaleX:1.08,scaleY:0.88,
-                duration:80,yoyo:true,ease:'Quad.easeOut'
+                targets:pl,scaleX:PH3.LAND_SQX,scaleY:PH3.LAND_SQY,
+                duration:PH3.LAND_IN,ease:'Quad.easeOut',
+                onComplete:function(){
+                    self.tweens.add({targets:pl,scaleX:1,scaleY:1,
+                        duration:PH3.LAND_OUT,ease:'Quad.easeOut'});
+                }
             });
         }
 
@@ -913,6 +1235,12 @@ var GameScene = new Phaser.Class({
         // ════════════════════════════
         //  DASH
         // ════════════════════════════
+        // Dash denied check
+        if(!this.isDashing && Phaser.Input.Keyboard.JustDown(this.kK)
+            && (!this.dashReady || this.dashCD > 0)){
+            this.handleDashDenied();
+        }
+
         if(!this.isDashing
             && Phaser.Input.Keyboard.JustDown(this.kK)
             && this.dashReady && this.dashCD <= 0){
@@ -1008,8 +1336,12 @@ var GameScene = new Phaser.Class({
                 pl.setFlipX(!this.facingRight);
                 bod.setGravityY(P.GRAV);
                 this.tweens.add({
-                    targets:pl,scaleX:1.06,scaleY:0.92,
-                    duration:80,yoyo:true,ease:'Quad.easeOut'
+                    targets:pl,scaleX:PH3.JUMP_SQX,scaleY:PH3.JUMP_SQY,
+                    duration:PH3.JUMP_IN,ease:'Quad.easeOut',
+                    onComplete:function(){
+                        self.tweens.add({targets:pl,scaleX:1,scaleY:1,
+                            duration:PH3.JUMP_OUT,ease:'Back.easeOut'});
+                    }
                 });
 
             } else if(this.jumpCount === 0 && (onGround || this.coyoteTimer > 0)){
@@ -1018,8 +1350,12 @@ var GameScene = new Phaser.Class({
                 this.jumpBuf     = 0;
                 this.coyoteTimer = 0;
                 this.tweens.add({
-                    targets:pl,scaleX:1.06,scaleY:0.92,
-                    duration:80,yoyo:true,ease:'Quad.easeOut'
+                    targets:pl,scaleX:PH3.JUMP_SQX,scaleY:PH3.JUMP_SQY,
+                    duration:PH3.JUMP_IN,ease:'Quad.easeOut',
+                    onComplete:function(){
+                        self.tweens.add({targets:pl,scaleX:1,scaleY:1,
+                            duration:PH3.JUMP_OUT,ease:'Back.easeOut'});
+                    }
                 });
 
             } else if(this.jumpCount === 1){
@@ -1027,8 +1363,12 @@ var GameScene = new Phaser.Class({
                 this.jumpCount = 2;
                 this.jumpBuf   = 0;
                 this.tweens.add({
-                    targets:pl,scaleX:1.06,scaleY:0.92,
-                    duration:80,yoyo:true,ease:'Quad.easeOut'
+                    targets:pl,scaleX:PH3.JUMP_SQX,scaleY:PH3.JUMP_SQY,
+                    duration:PH3.JUMP_IN,ease:'Quad.easeOut',
+                    onComplete:function(){
+                        self.tweens.add({targets:pl,scaleX:1,scaleY:1,
+                            duration:PH3.JUMP_OUT,ease:'Back.easeOut'});
+                    }
                 });
             }
         }
@@ -1085,6 +1425,21 @@ var GameScene = new Phaser.Class({
 
         this.timerText.setText('Time: '+Math.floor(this.elapsedTime)+'s');
 
+
+        // Phase 3: Juice & Polish
+        this.updateCustomParticles(dt);
+        this.updateIntensity();
+        this.updateIdleLife(dt,time,onGround);
+        this.checkMilestones();
+
+        // Dash ready pulse
+        var dashNowReady = this.dashReady && this.dashCD <= 0;
+        if(dashNowReady && !this._dashWasReady) this.pulseDashIcon();
+        this._dashWasReady = dashNowReady;
+
+        // Dash denied timer
+        if(this.dashDeniedTimer>0) this.dashDeniedTimer-=dt;
+
         this.prevGround = onGround;
     }
 });
@@ -1098,6 +1453,7 @@ var GameOverScene = new Phaser.Class({
 
     create: function(data){
         var self = this;
+        this.cameras.main.fadeIn(180);
         this.cameras.main.setBackgroundColor('#1a1a2e');
 
         var score   = data.score || 0;
