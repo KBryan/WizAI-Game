@@ -326,7 +326,7 @@ var GameScene = new Phaser.Class({
         // ── Player state ──
         this.score        = 0;
         this.hp           = P.HP;
-        this.invTimer     = 0;
+        this.invincibleUntil = 0;
         this.jumpCount    = 0;
         this.coyoteTimer  = 0;
         this.jumpBuf      = 0;
@@ -660,7 +660,7 @@ var GameScene = new Phaser.Class({
         }
 
         // Enemy damages player
-        if(this.invTimer > 0) return;
+        if(this.time.now < this.invincibleUntil) return;
 
         // Ground enemies only damage in attack state
         if(enemy.eData.type === 'ground' && enemy.eData.state !== 'attack') return;
@@ -706,10 +706,10 @@ var GameScene = new Phaser.Class({
 
     // ════════════ DAMAGE PLAYER ════════════
     damagePlayer: function(enemy){
-        if(this.invTimer > 0 || this.gameOver) return;
+        if(this.time.now < this.invincibleUntil || this.gameOver) return;
         this.hp--;
         this.updateHearts();
-        this.invTimer = P.INV_DUR;
+        this.invincibleUntil = this.time.now + P.INV_DUR * 1000;
 
         var dir = (this.player.x < enemy.x) ? -1 : 1;
         this.player.body.velocity.x = dir * P.KB_X;
@@ -1179,13 +1179,10 @@ var GameScene = new Phaser.Class({
         }
 
         // ── Invincibility blink ──
-        if(this.invTimer > 0){
-            this.invTimer -= dt;
+        if(this.time.now < this.invincibleUntil){
             pl.setAlpha(Math.sin(time * 0.02) > 0 ? 1 : 0.3);
-            if(this.invTimer <= 0){
-                pl.setAlpha(1);
-                this.invTimer = 0;
-            }
+        } else if(pl.alpha < 1){
+            pl.setAlpha(1);
         }
 
         // ── Landing squash ──
