@@ -12,6 +12,8 @@ interface EnemyData {
   lastAttackTime: number;
   isAttacking: boolean;
   isDead: boolean;
+  hitbox: Phaser.Physics.Arcade.Sprite | null;
+  hasHitPlayer: boolean;
 }
 
 export class GameScene extends Phaser.Scene {
@@ -37,11 +39,19 @@ export class GameScene extends Phaser.Scene {
 
   // Enemies
   private enemies!: Phaser.Physics.Arcade.Group;
+  private enemyHitboxes!: Phaser.Physics.Arcade.Group;
   private readonly ENEMY_COUNT = 6;
   private readonly CHASE_RANGE = 200;
   private readonly ATTACK_RANGE = 45;
   private readonly ENEMY_SPEED = 60;
   private readonly ENEMY_CHASE_SPEED = 100;
+
+  // Enemy hitbox tuning
+  private readonly HITBOX_WIDTH = 30;
+  private readonly HITBOX_HEIGHT = 36;
+  private readonly HITBOX_OFFSET_X = 28; // distance in front of enemy center
+  private readonly HITBOX_DAMAGE_DELAY_MS = 150; // ms after attack starts when hitbox activates
+  private readonly HITBOX_ACTIVE_DURATION_MS = 250; // how long hitbox stays active
 
   // HUD
   private healthBar!: Phaser.GameObjects.Graphics;
@@ -129,6 +139,8 @@ export class GameScene extends Phaser.Scene {
 
     // ---- ENEMIES ----
     this.enemies = this.physics.add.group();
+    this.enemyHitboxes = this.physics.add.group();
+
     const enemySpawnPoints = [
       { x: 400, patrolL: 300, patrolR: 550 },
       { x: 700, patrolL: 600, patrolR: 850 },
@@ -147,6 +159,14 @@ export class GameScene extends Phaser.Scene {
       enemy.body.setOffset(18, 14);
       enemy.setDepth(9);
 
+      // Create attack hitbox for this enemy -- invisible, starts disabled
+      const hitbox = this.physics.add.sprite(sp.x, sp.y, '__DEFAULT_IMGDRAW') as Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
+      hitbox.setVisible(false);
+      hitbox.body.setAllowGravity(false);
+      hitbox.body.setSize(this.HITBOX_WIDTH, this.HITBOX_HEIGHT);
+      hitbox.body.enable = false;
+      hitbox.setDepth(8);
+
       const data: EnemyData = {
         state: 'patrol',
         health: 50,
@@ -156,15 +176,18 @@ export class GameScene extends Phaser.Scene {
         lastAttackTime: 0,
         isAttacking: false,
         isDead: false,
+        hitbox,
+        hasHitPlayer: false,
       };
       enemy.setData('ai', data);
       this.enemies.add(enemy);
+      this.enemyHitboxes.add(hitbox);
     }
 
     this.physics.add.collider(this.enemies, platforms);
 
-    // Player-enemy overlap for combat
-    this.physics.add.overlap(this.player, this.enemies, this.handleCombat as any, undefined, this);
+    // Player hit by enemy attack hitbox (NOT body overlap)
+    this.physics.add.overlap(this.player, this.enemyHitboxes, this.handleEnemyHitPlayer as any, undefined, this);
 
     // ---- INPUT ----
     this.cursors = this.input.keyboard!.createCursorKeys();
@@ -196,7 +219,7 @@ export class GameScene extends Phaser.Scene {
     }).setScrollFactor(0).setDepth(100);
 
     const controlsText = this.add.text(this.cameras.main.width - 10, 10,
-      '← → Move | ↑ Jump | X Attack | Z Spell | C Shield', {
+      '\u2190 \u2192 Move | \u2191 Jump | X Attack | Z Spell | C Shield', {
         fontSize: '11px', color: '#ffffff', backgroundColor: '#00000066',
         padding: { x: 6, y: 4 },
       }).setOrigin(1, 0).setScrollFactor(0).setDepth(100);
@@ -210,6 +233,7 @@ export class GameScene extends Phaser.Scene {
     this.updateParallax();
     this.updatePlayer();
     this.updateEnemies(time);
+    this.syncEnemyHitboxes();
     this.drawHealthBar();
   }
 
@@ -320,15 +344,35 @@ export class GameScene extends Phaser.Scene {
       const dist = Phaser.Math.Distance.Between(enemy.x, enemy.y, this.player.x, this.player.y);
 
       if (dist < this.ATTACK_RANGE && time - ai.lastAttackTime > 1200) {
-        // Attack
+        // Attack -- schedule hitbox activation separately via timer
         ai.state = 'attack';
         ai.isAttacking = true;
+        ai.hasHitPlayer = false;
         ai.lastAttackTime = time;
         enemy.setVelocityX(0);
         enemy.play('enemy_attack', true);
+
+        // Activate hitbox after a short wind-up delay (damage frame of the animation)
+        this.time.delayedCall(this.HITBOX_DAMAGE_DELAY_MS, () => {
+          if (ai.isDead || !ai.isAttacking) return;
+          if (ai.hitbox?.body) {
+            ai.hitbox.body.enable = true;
+          }
+        });
+
+        // Deactivate hitbox after the active window
+        this.time.delayedCall(this.HITBOX_DAMAGE_DELAY_MS + this.HITBOX_ACTIVE_DURATION_MS, () => {
+          if (ai.hitbox?.body) {
+            ai.hitbox.body.enable = false;
+          }
+        });
+
         enemy.once('animationcomplete', () => {
           ai.isAttacking = false;
           ai.state = 'patrol';
+          if (ai.hitbox?.body) {
+            ai.hitbox.body.enable = false;
+          }
         });
       } else if (dist < this.CHASE_RANGE) {
         // Chase player
@@ -359,18 +403,49 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  // ---- COMBAT ----
-  private handleCombat(
-    playerObj: Phaser.Types.Physics.Arcade.GameObjectWithBody,
-    enemyObj: Phaser.Types.Physics.Arcade.GameObjectWithBody
-  ): void {
-    const enemy = enemyObj as Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
-    const ai = enemy.getData('ai') as EnemyData;
-    if (ai.isDead) return;
+  // ---- HITBOX SYNCING ----
+  private syncEnemyHitboxes(): void {
+    this.enemies.getChildren().forEach((obj) => {
+      const enemy = obj as Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
+      const ai = enemy.getData('ai') as EnemyData;
+      if (!ai.hitbox) return;
 
-    // Enemy attacks player when in attack state
-    if (ai.isAttacking && this.playerState !== 'shield' && this.playerState !== 'damage') {
-      this.playerTakeDamage(10, enemy);
+      // Position hitbox in front of the enemy based on facing direction
+      const offsetX = ai.direction * this.HITBOX_OFFSET_X;
+      ai.hitbox.x = enemy.x + offsetX;
+      ai.hitbox.y = enemy.y;
+    });
+  }
+
+  // ---- COMBAT ----
+  private handleEnemyHitPlayer(
+    _playerObj: Phaser.Types.Physics.Arcade.GameObjectWithBody,
+    hitboxObj: Phaser.Types.Physics.Arcade.GameObjectWithBody
+  ): void {
+    // Find the enemy that owns this hitbox
+    const hitbox = hitboxObj as Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
+
+    let owningEnemy: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody | null = null;
+    let owningAi: EnemyData | null = null;
+
+    for (const obj of this.enemies.getChildren()) {
+      const enemy = obj as Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
+      const ai = enemy.getData('ai') as EnemyData;
+      if (ai.hitbox === hitbox) {
+        owningEnemy = enemy;
+        owningAi = ai;
+        break;
+      }
+    }
+
+    if (!owningEnemy || !owningAi || owningAi.isDead) return;
+
+    // Only damage once per attack swing
+    if (owningAi.hasHitPlayer) return;
+
+    if (this.playerState !== 'shield' && this.playerState !== 'damage') {
+      owningAi.hasHitPlayer = true;
+      this.playerTakeDamage(10, owningEnemy);
     }
   }
 
@@ -408,6 +483,13 @@ export class GameScene extends Phaser.Scene {
       ai.state = 'death';
       enemy.play('enemy_death', true);
       enemy.body.enable = false;
+      // Disable and destroy hitbox too
+      if (ai.hitbox) {
+        ai.hitbox.body.enable = false;
+        this.time.delayedCall(1500, () => {
+          ai.hitbox?.destroy();
+        });
+      }
       this.score += 100;
       this.scoreText.setText(`Score: ${this.score}`);
       this.time.delayedCall(1500, () => {
@@ -415,6 +497,10 @@ export class GameScene extends Phaser.Scene {
       });
     } else {
       ai.isAttacking = false;
+      // Disable hitbox if attack is interrupted by damage
+      if (ai.hitbox?.body) {
+        ai.hitbox.body.enable = false;
+      }
       enemy.play('enemy_damage', true);
       enemy.once('animationcomplete', () => {
         if (!ai.isDead) enemy.play('enemy_idle', true);
@@ -442,7 +528,7 @@ export class GameScene extends Phaser.Scene {
       this.isAttacking = false;
       if (this.playerHealth <= 0) {
         this.playerState = 'death';
-        this.player.play('player_death', true);
+        this.play('player_death', true);
         this.player.body.enable = false;
         this.time.delayedCall(2000, () => this.scene.restart());
       }
