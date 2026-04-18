@@ -29,6 +29,8 @@ export class GameScene extends Phaser.Scene {
   private isAttacking = false;
   private playerHealth = 100;
   private playerMaxHealth = 100;
+  private invincibleUntil = 0; // timestamp when i-frames expire
+  private isInvincibleBlinking = false;
 
   // Parallax layers
   private bgLayer1!: Phaser.GameObjects.TileSprite;
@@ -54,6 +56,7 @@ export class GameScene extends Phaser.Scene {
   private readonly JUMP_VELOCITY = -380;
   private readonly PLAYER_SCALE = 2;
   private readonly ENEMY_SCALE = 1.8;
+  private readonly INVINCIBILITY_DURATION = 1000; // ms of i-frames after taking damage
 
   constructor() {
     super({ key: 'GameScene' });
@@ -210,6 +213,7 @@ export class GameScene extends Phaser.Scene {
     this.updateParallax();
     this.updatePlayer();
     this.updateEnemies(time);
+    this.updateInvincibilityBlink(time);
     this.drawHealthBar();
   }
 
@@ -219,6 +223,27 @@ export class GameScene extends Phaser.Scene {
     this.bgLayer1.tilePositionX = camX * 0.1;
     this.bgLayer2.tilePositionX = camX * 0.3;
     this.bgLayer3.tilePositionX = camX * 0.6;
+  }
+
+  // ---- INVINCIBILITY BLINK ----
+  private updateInvincibilityBlink(time: number): void {
+    if (time < this.invincibleUntil) {
+      // Start blink tween when invincibility begins
+      if (!this.isInvincibleBlinking) {
+        this.isInvincibleBlinking = true;
+        this.tweens.add({
+          targets: this.player,
+          alpha: 0.3,
+          duration: 80,
+          yoyo: true,
+          repeat: Math.ceil(this.INVINCIBILITY_DURATION / 160),
+          onComplete: () => {
+            this.player.setAlpha(1);
+            this.isInvincibleBlinking = false;
+          },
+        });
+      }
+    }
   }
 
   // ---- PLAYER UPDATE ----
@@ -368,6 +393,9 @@ export class GameScene extends Phaser.Scene {
     const ai = enemy.getData('ai') as EnemyData;
     if (ai.isDead) return;
 
+    // Check invincibility frames - skip damage if player is still invincible
+    if (this.time.now < this.invincibleUntil) return;
+
     // Enemy attacks player when in attack state
     if (ai.isAttacking && this.playerState !== 'shield' && this.playerState !== 'damage') {
       this.playerTakeDamage(10, enemy);
@@ -423,6 +451,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private playerTakeDamage(amount: number, source: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody): void {
+    // Set invincibility frames - player cannot take damage again until invincibleUntil passes
+    this.invincibleUntil = this.time.now + this.INVINCIBILITY_DURATION;
+
     this.playerHealth = Math.max(0, this.playerHealth - amount);
 
     // Knockback
@@ -430,7 +461,7 @@ export class GameScene extends Phaser.Scene {
     this.player.setVelocityX(dir * 200);
     this.player.setVelocityY(-120);
 
-    // Flash
+    // Flash red
     this.player.setTint(0xff4444);
     this.time.delayedCall(200, () => this.player.clearTint());
 
@@ -444,7 +475,10 @@ export class GameScene extends Phaser.Scene {
         this.playerState = 'death';
         this.player.play('player_death', true);
         this.player.body.enable = false;
-        this.time.delayedCall(2000, () => this.scene.restart());
+        this.time.delayedCall(2000, () => {
+          this.player.setAlpha(1);
+          this.scene.restart();
+        });
       }
     });
   }
