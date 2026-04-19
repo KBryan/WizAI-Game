@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
+import { GameConfig } from '../config/GameConfig';
+import type { PlayerState, EnemyState } from '../types/states';
 
-type PlayerState = 'idle' | 'run' | 'jump' | 'fall' | 'attack' | 'crouch' | 'damage' | 'death' | 'spell' | 'shield';
-type EnemyState = 'idle' | 'patrol' | 'chase' | 'attack' | 'damage' | 'death';
+export type { PlayerState, EnemyState };
 
 interface EnemyData {
   state: EnemyState;
@@ -15,10 +16,6 @@ interface EnemyData {
 }
 
 export class GameScene extends Phaser.Scene {
-  // World
-  private readonly WORLD_WIDTH = 3200;
-  private readonly GROUND_Y_OFFSET = 48;
-
   // Player
   private player!: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
@@ -27,8 +24,8 @@ export class GameScene extends Phaser.Scene {
   private shieldKey!: Phaser.Input.Keyboard.Key;
   private playerState: PlayerState = 'idle';
   private isAttacking = false;
-  private playerHealth = 100;
-  private playerMaxHealth = 100;
+  private playerHealth: number = GameConfig.player.maxHealth;
+  private playerMaxHealth: number = GameConfig.player.maxHealth;
   private invincibleUntil = 0; // timestamp when i-frames expire
   private isInvincibleBlinking = false;
 
@@ -39,24 +36,12 @@ export class GameScene extends Phaser.Scene {
 
   // Enemies
   private enemies!: Phaser.Physics.Arcade.Group;
-  private readonly ENEMY_COUNT = 6;
-  private readonly CHASE_RANGE = 200;
-  private readonly ATTACK_RANGE = 45;
-  private readonly ENEMY_SPEED = 60;
-  private readonly ENEMY_CHASE_SPEED = 100;
 
   // HUD
   private healthBar!: Phaser.GameObjects.Graphics;
   private healthText!: Phaser.GameObjects.Text;
   private scoreText!: Phaser.GameObjects.Text;
   private score = 0;
-
-  // Tuning
-  private readonly MOVE_SPEED = 180;
-  private readonly JUMP_VELOCITY = -380;
-  private readonly PLAYER_SCALE = 2;
-  private readonly ENEMY_SCALE = 1.8;
-  private readonly INVINCIBILITY_DURATION = 1000; // ms of i-frames after taking damage
 
   constructor() {
     super({ key: 'GameScene' });
@@ -65,7 +50,7 @@ export class GameScene extends Phaser.Scene {
   create(): void {
     // Apply debug physics setting from localStorage
     try {
-      const raw = localStorage.getItem('wizai_settings');
+      const raw = localStorage.getItem(GameConfig.ui.localStorageKey);
       if (raw) {
         const settings = JSON.parse(raw);
         this.physics.world.drawDebug = settings.debugPhysics ?? false;
@@ -74,7 +59,7 @@ export class GameScene extends Phaser.Scene {
     } catch { /* ignore */ }
 
     const height = this.cameras.main.height;
-    const groundY = height - this.GROUND_Y_OFFSET;
+    const groundY = height - GameConfig.world.groundYOffset;
 
     // ---- PARALLAX BACKGROUND ----
     this.bgLayer1 = this.add.tileSprite(0, 0, this.cameras.main.width, height, 'bg-layer1')
@@ -87,9 +72,9 @@ export class GameScene extends Phaser.Scene {
     // ---- GROUND ----
     const groundGfx = this.add.graphics();
     groundGfx.fillStyle(0x3a5a40);
-    groundGfx.fillRect(0, groundY, this.WORLD_WIDTH, this.GROUND_Y_OFFSET);
+    groundGfx.fillRect(0, groundY, GameConfig.world.width, GameConfig.world.groundYOffset);
     groundGfx.fillStyle(0x588157);
-    groundGfx.fillRect(0, groundY, this.WORLD_WIDTH, 6);
+    groundGfx.fillRect(0, groundY, GameConfig.world.width, 6);
 
     // Some floating platforms
     const platformPositions = [
@@ -103,7 +88,7 @@ export class GameScene extends Phaser.Scene {
     const platforms = this.physics.add.staticGroup();
 
     // Main ground
-    const mainGround = this.add.zone(this.WORLD_WIDTH / 2, groundY + this.GROUND_Y_OFFSET / 2, this.WORLD_WIDTH, this.GROUND_Y_OFFSET);
+    const mainGround = this.add.zone(GameConfig.world.width / 2, groundY + GameConfig.world.groundYOffset / 2, GameConfig.world.width, GameConfig.world.groundYOffset);
     this.physics.add.existing(mainGround, true);
     platforms.add(mainGround);
 
@@ -121,11 +106,11 @@ export class GameScene extends Phaser.Scene {
     }
 
     // ---- PLAYER ----
-    this.player = this.physics.add.sprite(100, groundY - 60, 'char-blue-1', 0);
-    this.player.setScale(this.PLAYER_SCALE);
+    this.player = this.physics.add.sprite(GameConfig.player.spawnX, groundY + GameConfig.player.spawnYOffset, 'char-blue-1', 0);
+    this.player.setScale(GameConfig.player.scale);
     this.player.setCollideWorldBounds(true);
-    this.player.body.setSize(20, 40);
-    this.player.body.setOffset(18, 14);
+    this.player.body.setSize(GameConfig.player.bodyWidth, GameConfig.player.bodyHeight);
+    this.player.body.setOffset(GameConfig.player.bodyOffsetX, GameConfig.player.bodyOffsetY);
     this.player.setDepth(10);
 
     this.physics.add.collider(this.player, platforms);
@@ -141,18 +126,18 @@ export class GameScene extends Phaser.Scene {
       { x: 2600, patrolL: 2500, patrolR: 2750 },
     ];
 
-    for (let i = 0; i < this.ENEMY_COUNT; i++) {
+    for (let i = 0; i < GameConfig.enemy.count; i++) {
       const sp = enemySpawnPoints[i];
-      const enemy = this.physics.add.sprite(sp.x, groundY - 60, 'char-red-1', 0) as Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
-      enemy.setScale(this.ENEMY_SCALE);
+      const enemy = this.physics.add.sprite(sp.x, groundY + GameConfig.enemy.spawnYOffset, 'char-red-1', 0) as Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
+      enemy.setScale(GameConfig.enemy.scale);
       enemy.setCollideWorldBounds(true);
-      enemy.body.setSize(20, 40);
-      enemy.body.setOffset(18, 14);
+      enemy.body.setSize(GameConfig.enemy.bodyWidth, GameConfig.enemy.bodyHeight);
+      enemy.body.setOffset(GameConfig.enemy.bodyOffsetX, GameConfig.enemy.bodyOffsetY);
       enemy.setDepth(9);
 
       const data: EnemyData = {
         state: 'patrol',
-        health: 50,
+        health: GameConfig.enemy.health,
         patrolLeft: sp.patrolL,
         patrolRight: sp.patrolR,
         direction: 1,
@@ -184,10 +169,10 @@ export class GameScene extends Phaser.Scene {
     this.player.play('player_idle');
 
     // ---- CAMERA ----
-    this.physics.world.setBounds(0, 0, this.WORLD_WIDTH, height);
-    this.cameras.main.setBounds(0, 0, this.WORLD_WIDTH, height);
-    this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
-    this.cameras.main.setDeadzone(100, 50);
+    this.physics.world.setBounds(0, 0, GameConfig.world.width, height);
+    this.cameras.main.setBounds(0, 0, GameConfig.world.width, height);
+    this.cameras.main.startFollow(this.player, true, GameConfig.camera.followLerpX, GameConfig.camera.followLerpY);
+    this.cameras.main.setDeadzone(GameConfig.camera.deadzoneWidth, GameConfig.camera.deadzoneHeight);
 
     // ---- HUD (fixed to camera) ----
     this.healthBar = this.add.graphics().setScrollFactor(0).setDepth(100);
@@ -197,12 +182,6 @@ export class GameScene extends Phaser.Scene {
     this.scoreText = this.add.text(16, 44, 'Score: 0', {
       fontSize: '14px', color: '#ffffff',
     }).setScrollFactor(0).setDepth(100);
-
-    const controlsText = this.add.text(this.cameras.main.width - 10, 10,
-      '← → Move | ↑ Jump | X Attack | Z Spell | C Shield', {
-        fontSize: '11px', color: '#ffffff', backgroundColor: '#00000066',
-        padding: { x: 6, y: 4 },
-      }).setOrigin(1, 0).setScrollFactor(0).setDepth(100);
 
     this.drawHealthBar();
   }
@@ -228,7 +207,6 @@ export class GameScene extends Phaser.Scene {
   // ---- INVINCIBILITY BLINK ----
   private updateInvincibilityBlink(time: number): void {
     if (time < this.invincibleUntil) {
-      // Start blink tween when invincibility begins
       if (!this.isInvincibleBlinking) {
         this.isInvincibleBlinking = true;
         this.tweens.add({
@@ -236,7 +214,7 @@ export class GameScene extends Phaser.Scene {
           alpha: 0.3,
           duration: 80,
           yoyo: true,
-          repeat: Math.ceil(this.INVINCIBILITY_DURATION / 160),
+          repeat: Math.ceil(GameConfig.player.invincibilityDuration / 160),
           onComplete: () => {
             this.player.setAlpha(1);
             this.isInvincibleBlinking = false;
@@ -275,8 +253,8 @@ export class GameScene extends Phaser.Scene {
       this.isAttacking = true;
       this.player.setVelocityX(0);
       this.playerState = 'attack';
-      this.player.play('player_attack', true); // Force restart even if same anim
-      this.attackEnemiesInRange();
+      this.player.play('player_attack', true);
+      this.attackEnemiesInRange(GameConfig.combat.playerAttackRange);
       return;
     }
 
@@ -285,17 +263,17 @@ export class GameScene extends Phaser.Scene {
       this.isAttacking = true;
       this.player.setVelocityX(0);
       this.playerState = 'spell';
-      this.player.play('player_spell', true); // Force restart even if same anim
-      this.attackEnemiesInRange(80);
+      this.player.play('player_spell', true);
+      this.attackEnemiesInRange(GameConfig.combat.playerSpellRange);
       return;
     }
 
     // Movement
     if (this.cursors.left.isDown) {
-      this.player.setVelocityX(-this.MOVE_SPEED);
+      this.player.setVelocityX(-GameConfig.player.moveSpeed);
       this.player.setFlipX(true);
     } else if (this.cursors.right.isDown) {
-      this.player.setVelocityX(this.MOVE_SPEED);
+      this.player.setVelocityX(GameConfig.player.moveSpeed);
       this.player.setFlipX(false);
     } else {
       this.player.setVelocityX(0);
@@ -303,13 +281,13 @@ export class GameScene extends Phaser.Scene {
 
     // Jump
     if (this.cursors.up.isDown && onGround) {
-      this.player.setVelocityY(this.JUMP_VELOCITY);
+      this.player.setVelocityY(GameConfig.player.jumpVelocity);
     }
 
     // Animation state
     if (!onGround) {
       this.changePlayerState(vy < 0 ? 'jump' : 'fall');
-    } else if (Math.abs(this.player.body.velocity.x) > 10) {
+    } else if (Math.abs(this.player.body.velocity.x) > GameConfig.player.idleVelocityThreshold) {
       this.changePlayerState('run');
     } else {
       this.changePlayerState('idle');
@@ -344,8 +322,7 @@ export class GameScene extends Phaser.Scene {
 
       const dist = Phaser.Math.Distance.Between(enemy.x, enemy.y, this.player.x, this.player.y);
 
-      if (dist < this.ATTACK_RANGE && time - ai.lastAttackTime > 1200) {
-        // Attack
+      if (dist < GameConfig.enemy.attackRange && time - ai.lastAttackTime > GameConfig.enemy.attackCooldown) {
         ai.state = 'attack';
         ai.isAttacking = true;
         ai.lastAttackTime = time;
@@ -355,20 +332,18 @@ export class GameScene extends Phaser.Scene {
           ai.isAttacking = false;
           ai.state = 'patrol';
         });
-      } else if (dist < this.CHASE_RANGE) {
-        // Chase player
+      } else if (dist < GameConfig.enemy.chaseRange) {
         ai.state = 'chase';
         const dir = this.player.x < enemy.x ? -1 : 1;
         ai.direction = dir;
-        enemy.setVelocityX(dir * this.ENEMY_CHASE_SPEED);
+        enemy.setVelocityX(dir * GameConfig.enemy.chaseSpeed);
         enemy.setFlipX(dir < 0);
         if (enemy.anims.currentAnim?.key !== 'enemy_run') {
           enemy.play('enemy_run', true);
         }
       } else {
-        // Patrol
         ai.state = 'patrol';
-        enemy.setVelocityX(ai.direction * this.ENEMY_SPEED);
+        enemy.setVelocityX(ai.direction * GameConfig.enemy.speed);
         enemy.setFlipX(ai.direction < 0);
 
         if (enemy.x <= ai.patrolLeft) {
@@ -393,52 +368,47 @@ export class GameScene extends Phaser.Scene {
     const ai = enemy.getData('ai') as EnemyData;
     if (ai.isDead) return;
 
-    // Check invincibility frames - skip damage if player is still invincible
     if (this.time.now < this.invincibleUntil) return;
 
-    // Enemy attacks player when in attack state
     if (ai.isAttacking && this.playerState !== 'shield' && this.playerState !== 'damage') {
-      this.playerTakeDamage(10, enemy);
+      this.playerTakeDamage(GameConfig.player.damageReceived, enemy);
     }
   }
 
-  private attackEnemiesInRange(range = 60): void {
+  private attackEnemiesInRange(range: number): void {
     this.enemies.getChildren().forEach((obj) => {
       const enemy = obj as Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
       const ai = enemy.getData('ai') as EnemyData;
       if (ai.isDead) return;
 
       const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, enemy.x, enemy.y);
-      // Check facing direction
       const enemyIsRight = enemy.x > this.player.x;
       const facingRight = !this.player.flipX;
       const facingEnemy = (enemyIsRight && facingRight) || (!enemyIsRight && !facingRight);
 
       if (dist < range && facingEnemy) {
-        this.enemyTakeDamage(enemy, ai, 25);
+        this.enemyTakeDamage(enemy, ai, GameConfig.enemy.damageDealt);
       }
     });
   }
 
   private enemyTakeDamage(enemy: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody, ai: EnemyData, amount: number): void {
     ai.health -= amount;
-    // Knockback
     const dir = enemy.x > this.player.x ? 1 : -1;
-    enemy.setVelocityX(dir * 150);
-    enemy.setVelocityY(-100);
+    enemy.setVelocityX(dir * GameConfig.enemy.knockbackX);
+    enemy.setVelocityY(GameConfig.enemy.knockbackY);
 
-    // Flash red
     enemy.setTint(0xff0000);
-    this.time.delayedCall(150, () => enemy.clearTint());
+    this.time.delayedCall(GameConfig.enemy.tintDuration, () => enemy.clearTint());
 
     if (ai.health <= 0) {
       ai.isDead = true;
       ai.state = 'death';
       enemy.play('enemy_death', true);
       enemy.body.enable = false;
-      this.score += 100;
+      this.score += GameConfig.enemy.deathScore;
       this.scoreText.setText(`Score: ${this.score}`);
-      this.time.delayedCall(1500, () => {
+      this.time.delayedCall(GameConfig.enemy.deathDelay, () => {
         enemy.destroy();
       });
     } else {
@@ -451,22 +421,17 @@ export class GameScene extends Phaser.Scene {
   }
 
   private playerTakeDamage(amount: number, source: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody): void {
-    // Set invincibility frames - player cannot take damage again until invincibleUntil passes
-    this.invincibleUntil = this.time.now + this.INVINCIBILITY_DURATION;
-
+    this.invincibleUntil = this.time.now + GameConfig.player.invincibilityDuration;
     this.playerHealth = Math.max(0, this.playerHealth - amount);
 
-    // Knockback
     const dir = this.player.x > source.x ? 1 : -1;
-    this.player.setVelocityX(dir * 200);
-    this.player.setVelocityY(-120);
+    this.player.setVelocityX(dir * GameConfig.player.knockbackX);
+    this.player.setVelocityY(GameConfig.player.knockbackY);
 
-    // Flash red
     this.player.setTint(0xff4444);
-    this.time.delayedCall(200, () => this.player.clearTint());
+    this.time.delayedCall(GameConfig.player.damageTintDuration, () => this.player.clearTint());
 
-    // Brief invincibility via state
-    this.isAttacking = true; // Prevents input briefly
+    this.isAttacking = true;
     this.playerState = 'damage';
     this.player.play('player_damage', true);
     this.player.once('animationcomplete', () => {
@@ -475,7 +440,7 @@ export class GameScene extends Phaser.Scene {
         this.playerState = 'death';
         this.player.play('player_death', true);
         this.player.body.enable = false;
-        this.time.delayedCall(2000, () => {
+        this.time.delayedCall(GameConfig.player.restartDelay, () => {
           this.player.setAlpha(1);
           this.scene.restart();
         });
@@ -486,17 +451,16 @@ export class GameScene extends Phaser.Scene {
   // ---- HUD ----
   private drawHealthBar(): void {
     this.healthBar.clear();
-    const x = 40, y = 16, w = 120, h = 16;
-    // Background
-    this.healthBar.fillStyle(0x333333, 0.8);
+    const { healthBarX: x, healthBarY: y, healthBarWidth: w, healthBarHeight: h } = GameConfig.hud;
+    this.healthBar.fillStyle(GameConfig.hud.healthBarBgColor, GameConfig.hud.healthBarBgAlpha);
     this.healthBar.fillRect(x, y, w, h);
-    // Health fill
     const pct = this.playerHealth / this.playerMaxHealth;
-    const color = pct > 0.5 ? 0x44cc44 : pct > 0.25 ? 0xccaa44 : 0xcc4444;
+    const color = pct > GameConfig.hud.healthHighThreshold ? GameConfig.hud.healthBarHighColor
+      : pct > GameConfig.hud.healthLowThreshold ? GameConfig.hud.healthBarMidColor
+      : GameConfig.hud.healthBarLowColor;
     this.healthBar.fillStyle(color, 1);
     this.healthBar.fillRect(x, y, w * pct, h);
-    // Border
-    this.healthBar.lineStyle(1, 0xffffff, 0.6);
+    this.healthBar.lineStyle(GameConfig.hud.healthBarBorderWidth, GameConfig.hud.healthBarBorderColor, GameConfig.hud.healthBarBorderAlpha);
     this.healthBar.strokeRect(x, y, w, h);
   }
 }
