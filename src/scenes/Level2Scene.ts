@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { GameConfig } from '../config/GameConfig';
+import { Level2Config } from '../config/Level2Config';
 import { logger } from '../utils/logger';
 import type { PlayerState, EnemyState } from '../types/states';
 
@@ -10,25 +11,31 @@ interface EnemyData {
   health: number;
   patrolLeft: number;
   patrolRight: number;
-  direction: number; // 1 = right, -1 = left
+  direction: number;
   lastAttackTime: number;
   isAttacking: boolean;
   isDead: boolean;
 }
 
-interface BossData {
+interface FinalBossData {
   state: EnemyState;
   health: number;
+  maxHealth: number;
   direction: number;
   lastAttackTime: number;
   lastChargeTime: number;
   isAttacking: boolean;
   isCharging: boolean;
   isDead: boolean;
+  ragePhase: number;
 }
 
-export class GameScene extends Phaser.Scene {
-  // Player
+interface Level2Data {
+  playerHealth?: number;
+  score?: number;
+}
+
+export class Level2Scene extends Phaser.Scene {
   private player!: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private attackKey!: Phaser.Input.Keyboard.Key;
@@ -38,28 +45,22 @@ export class GameScene extends Phaser.Scene {
   private isAttacking = false;
   private playerHealth: number = GameConfig.player.maxHealth;
   private playerMaxHealth: number = GameConfig.player.maxHealth;
-  private invincibleUntil = 0; // timestamp when i-frames expire
+  private invincibleUntil = 0;
   private isInvincibleBlinking = false;
 
-  // Parallax layers
   private bgLayer1!: Phaser.GameObjects.TileSprite;
   private bgLayer2!: Phaser.GameObjects.TileSprite;
   private bgLayer3!: Phaser.GameObjects.TileSprite;
 
-  // Platforms
   private platforms!: Phaser.Physics.Arcade.StaticGroup;
-
-  // Enemies
   private enemies!: Phaser.Physics.Arcade.Group;
   private killCount = 0;
 
-  // Boss
-  private boss!: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody | null;
-  private bossActive = false;
-  private bossHealthBar!: Phaser.GameObjects.Graphics;
-  private bossNameText!: Phaser.GameObjects.Text;
+  private finalBoss!: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody | null;
+  private finalBossActive = false;
+  private finalBossHealthBar!: Phaser.GameObjects.Graphics;
+  private finalBossNameText!: Phaser.GameObjects.Text;
 
-  // HUD
   private healthBar!: Phaser.GameObjects.Graphics;
   private healthText!: Phaser.GameObjects.Text;
   private scoreText!: Phaser.GameObjects.Text;
@@ -67,63 +68,50 @@ export class GameScene extends Phaser.Scene {
   private score = 0;
 
   constructor() {
-    super({ key: 'GameScene' });
+    super({ key: 'Level2Scene' });
   }
 
-  create(): void {
-    logger.info('GameScene create started');
+  create(data: Level2Data): void {
+    logger.info('Level2Scene create started with data:', data);
 
-    // Apply debug physics setting from localStorage
-    try {
-      const raw = localStorage.getItem(GameConfig.ui.localStorageKey);
-      if (raw) {
-        const settings = JSON.parse(raw);
-        this.physics.world.drawDebug = settings.debugPhysics ?? false;
-        if (!settings.debugPhysics) this.physics.world.debugGraphic?.clear();
-      }
-    } catch { /* ignore */ }
+    // Restore player state from Level 1 or use defaults
+    this.playerHealth = data.playerHealth ?? GameConfig.player.maxHealth;
+    this.score = data.score ?? 0;
 
     const height = this.cameras.main.height;
-    const groundY = height - GameConfig.world.groundYOffset;
+    const groundY = height - Level2Config.groundYOffset;
+
+    // Dark atmosphere tint
+    this.cameras.main.setBackgroundColor('#0d0d1a');
 
     // ---- PARALLAX BACKGROUND ----
     this.bgLayer1 = this.add.tileSprite(0, 0, this.cameras.main.width, height, 'bg-layer1')
-      .setOrigin(0, 0).setScrollFactor(0).setDepth(-30);
+      .setOrigin(0, 0).setScrollFactor(0).setDepth(-30).setTint(0x6666aa);
     this.bgLayer2 = this.add.tileSprite(0, 0, this.cameras.main.width, height, 'bg-layer2')
-      .setOrigin(0, 0).setScrollFactor(0).setDepth(-20);
+      .setOrigin(0, 0).setScrollFactor(0).setDepth(-20).setTint(0x555588);
     this.bgLayer3 = this.add.tileSprite(0, 0, this.cameras.main.width, height, 'bg-layer3')
-      .setOrigin(0, 0).setScrollFactor(0).setDepth(-10);
+      .setOrigin(0, 0).setScrollFactor(0).setDepth(-10).setTint(0x444477);
 
     // ---- GROUND ----
     const groundGfx = this.add.graphics();
-    groundGfx.fillStyle(0x3a5a40);
-    groundGfx.fillRect(0, groundY, GameConfig.world.width, GameConfig.world.groundYOffset);
-    groundGfx.fillStyle(0x588157);
-    groundGfx.fillRect(0, groundY, GameConfig.world.width, 6);
+    groundGfx.fillStyle(Level2Config.groundColor);
+    groundGfx.fillRect(0, groundY, Level2Config.worldWidth, Level2Config.groundYOffset);
+    groundGfx.fillStyle(Level2Config.groundTopColor);
+    groundGfx.fillRect(0, groundY, Level2Config.worldWidth, 6);
 
-    // Some floating platforms
-    const platformPositions = [
-      { x: 500, y: groundY - 100, w: 150 },
-      { x: 900, y: groundY - 70, w: 120 },
-      { x: 1300, y: groundY - 120, w: 180 },
-      { x: 1800, y: groundY - 90, w: 140 },
-      { x: 2200, y: groundY - 130, w: 160 },
-      { x: 2700, y: groundY - 80, w: 130 },
-    ];
+    // ---- PLATFORMS ----
     const platforms = this.physics.add.staticGroup();
     this.platforms = platforms;
 
-    // Main ground
-    const mainGround = this.add.zone(GameConfig.world.width / 2, groundY + GameConfig.world.groundYOffset / 2, GameConfig.world.width, GameConfig.world.groundYOffset);
+    const mainGround = this.add.zone(Level2Config.worldWidth / 2, groundY + Level2Config.groundYOffset / 2, Level2Config.worldWidth, Level2Config.groundYOffset);
     this.physics.add.existing(mainGround, true);
     platforms.add(mainGround);
 
-    // Floating platforms
-    for (const pp of platformPositions) {
+    for (const pp of Level2Config.platformPositions) {
       const platGfx = this.add.graphics();
-      platGfx.fillStyle(0x4a6741);
+      platGfx.fillStyle(Level2Config.platformColor);
       platGfx.fillRect(pp.x - pp.w / 2, pp.y, pp.w, 14);
-      platGfx.fillStyle(0x6b8f5e);
+      platGfx.fillStyle(Level2Config.platformTopColor);
       platGfx.fillRect(pp.x - pp.w / 2, pp.y, pp.w, 4);
 
       const platZone = this.add.zone(pp.x, pp.y + 7, pp.w, 14);
@@ -132,7 +120,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     // ---- PLAYER ----
-    this.player = this.physics.add.sprite(GameConfig.player.spawnX, groundY + GameConfig.player.spawnYOffset, 'char-blue-1', 0);
+    this.player = this.physics.add.sprite(Level2Config.playerSpawn.x, groundY + Level2Config.playerSpawn.yOffset, 'char-blue-1', 0);
     this.player.setScale(GameConfig.player.scale);
     this.player.setCollideWorldBounds(true);
     this.player.body.setSize(GameConfig.player.bodyWidth, GameConfig.player.bodyHeight);
@@ -141,29 +129,21 @@ export class GameScene extends Phaser.Scene {
 
     this.physics.add.collider(this.player, platforms);
 
-    // ---- ENEMIES ----
+    // ---- ENEMIES (10) ----
     this.enemies = this.physics.add.group();
-    const enemySpawnPoints = [
-      { x: 400, patrolL: 300, patrolR: 550 },
-      { x: 700, patrolL: 600, patrolR: 850 },
-      { x: 1100, patrolL: 1000, patrolR: 1250 },
-      { x: 1600, patrolL: 1500, patrolR: 1750 },
-      { x: 2100, patrolL: 2000, patrolR: 2250 },
-      { x: 2600, patrolL: 2500, patrolR: 2750 },
-    ];
 
-    for (let i = 0; i < GameConfig.enemy.count; i++) {
-      const sp = enemySpawnPoints[i];
-      const enemy = this.physics.add.sprite(sp.x, groundY + GameConfig.enemy.spawnYOffset, 'char-red-1', 0) as Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
-      enemy.setScale(GameConfig.enemy.scale);
+    for (let i = 0; i < GameConfig.levels.level2.enemyCount; i++) {
+      const sp = Level2Config.enemySpawnPoints[i];
+      const enemy = this.physics.add.sprite(sp.x, groundY + GameConfig.level2Enemy.spawnYOffset, 'char-purple-1', 0) as Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
+      enemy.setScale(GameConfig.level2Enemy.scale);
       enemy.setCollideWorldBounds(true);
-      enemy.body.setSize(GameConfig.enemy.bodyWidth, GameConfig.enemy.bodyHeight);
-      enemy.body.setOffset(GameConfig.enemy.bodyOffsetX, GameConfig.enemy.bodyOffsetY);
+      enemy.body.setSize(GameConfig.level2Enemy.bodyWidth, GameConfig.level2Enemy.bodyHeight);
+      enemy.body.setOffset(GameConfig.level2Enemy.bodyOffsetX, GameConfig.level2Enemy.bodyOffsetY);
       enemy.setDepth(9);
 
       const data: EnemyData = {
         state: 'patrol',
-        health: GameConfig.enemy.health,
+        health: GameConfig.level2Enemy.health,
         patrolLeft: sp.patrolL,
         patrolRight: sp.patrolR,
         direction: 1,
@@ -176,8 +156,6 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.physics.add.collider(this.enemies, platforms);
-
-    // Player-enemy overlap for combat
     this.physics.add.overlap(this.player, this.enemies, this.handleCombat as any, undefined, this);
 
     // ---- INPUT ----
@@ -195,27 +173,27 @@ export class GameScene extends Phaser.Scene {
     this.player.play('player_idle');
 
     // ---- CAMERA ----
-    this.physics.world.setBounds(0, 0, GameConfig.world.width, height);
-    this.cameras.main.setBounds(0, 0, GameConfig.world.width, height);
+    this.physics.world.setBounds(0, 0, Level2Config.worldWidth, height);
+    this.cameras.main.setBounds(0, 0, Level2Config.worldWidth, height);
     this.cameras.main.startFollow(this.player, true, GameConfig.camera.followLerpX, GameConfig.camera.followLerpY);
     this.cameras.main.setDeadzone(GameConfig.camera.deadzoneWidth, GameConfig.camera.deadzoneHeight);
 
-    // ---- HUD (fixed to camera) ----
+    // ---- HUD ----
     this.healthBar = this.add.graphics().setScrollFactor(0).setDepth(100);
     this.healthText = this.add.text(16, 16, 'HP', {
       fontSize: '14px', color: '#ffffff', fontStyle: 'bold',
     }).setScrollFactor(0).setDepth(100);
-    this.scoreText = this.add.text(16, 44, 'Score: 0', {
+    this.scoreText = this.add.text(16, 44, `Score: ${this.score}`, {
       fontSize: '14px', color: '#ffffff',
     }).setScrollFactor(0).setDepth(100);
-    this.levelText = this.add.text(this.cameras.main.width - 16, 16, 'Level 1', {
-      fontSize: '14px', color: '#44cc88', fontStyle: 'bold',
+    this.levelText = this.add.text(this.cameras.main.width - 16, 16, 'Level 2', {
+      fontSize: '14px', color: '#aa88ff', fontStyle: 'bold',
     }).setOrigin(1, 0).setScrollFactor(0).setDepth(100);
 
-    // Boss HUD (hidden until boss spawns)
-    this.bossHealthBar = this.add.graphics().setScrollFactor(0).setDepth(100).setVisible(false);
-    this.bossNameText = this.add.text(this.cameras.main.width / 2, 20, 'FOREST GUARDIAN', {
-      fontSize: '16px', color: '#ff4444', fontStyle: 'bold',
+    // Final Boss HUD
+    this.finalBossHealthBar = this.add.graphics().setScrollFactor(0).setDepth(100).setVisible(false);
+    this.finalBossNameText = this.add.text(this.cameras.main.width / 2, 20, GameConfig.levels.level2.bossName, {
+      fontSize: '16px', color: '#aa44ff', fontStyle: 'bold',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(100).setVisible(false);
 
     this.drawHealthBar();
@@ -227,13 +205,12 @@ export class GameScene extends Phaser.Scene {
     this.updateParallax();
     this.updatePlayer();
     this.updateEnemies(time);
-    this.updateBoss(time);
+    this.updateFinalBoss(time);
     this.updateInvincibilityBlink(time);
     this.drawHealthBar();
-    this.drawBossHealthBar();
+    this.drawFinalBossHealthBar();
   }
 
-  // ---- PARALLAX ----
   private updateParallax(): void {
     const camX = this.cameras.main.scrollX;
     this.bgLayer1.tilePositionX = camX * 0.1;
@@ -241,7 +218,6 @@ export class GameScene extends Phaser.Scene {
     this.bgLayer3.tilePositionX = camX * 0.6;
   }
 
-  // ---- INVINCIBILITY BLINK ----
   private updateInvincibilityBlink(time: number): void {
     if (time < this.invincibleUntil) {
       if (!this.isInvincibleBlinking) {
@@ -261,7 +237,6 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  // ---- PLAYER UPDATE ----
   private updatePlayer(): void {
     const onGround = this.player.body.blocked.down;
     const vy = this.player.body.velocity.y;
@@ -271,43 +246,38 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    // Shield
     if (this.shieldKey.isDown && onGround) {
       this.player.setVelocityX(0);
       this.changePlayerState('shield');
       return;
     }
 
-    // Crouch
     if (this.cursors.down.isDown && onGround && !this.cursors.left.isDown && !this.cursors.right.isDown) {
       this.player.setVelocityX(0);
       this.changePlayerState('crouch');
       return;
     }
 
-    // Attack
     if (Phaser.Input.Keyboard.JustDown(this.attackKey)) {
       this.isAttacking = true;
       this.player.setVelocityX(0);
       this.playerState = 'attack';
       this.player.play('player_attack', true);
       this.attackEnemiesInRange(GameConfig.combat.playerAttackRange);
-      this.attackBossInRange(GameConfig.combat.playerAttackRange);
+      this.attackFinalBossInRange(GameConfig.combat.playerAttackRange);
       return;
     }
 
-    // Spell
     if (Phaser.Input.Keyboard.JustDown(this.spellKey) && onGround) {
       this.isAttacking = true;
       this.player.setVelocityX(0);
       this.playerState = 'spell';
       this.player.play('player_spell', true);
       this.attackEnemiesInRange(GameConfig.combat.playerSpellRange);
-      this.attackBossInRange(GameConfig.combat.playerSpellRange);
+      this.attackFinalBossInRange(GameConfig.combat.playerSpellRange);
       return;
     }
 
-    // Movement
     if (this.cursors.left.isDown) {
       this.player.setVelocityX(-GameConfig.player.moveSpeed);
       this.player.setFlipX(true);
@@ -318,12 +288,10 @@ export class GameScene extends Phaser.Scene {
       this.player.setVelocityX(0);
     }
 
-    // Jump
     if (this.cursors.up.isDown && onGround) {
       this.player.setVelocityY(GameConfig.player.jumpVelocity);
     }
 
-    // Animation state
     if (!onGround) {
       this.changePlayerState(vy < 0 ? 'jump' : 'fall');
     } else if (Math.abs(this.player.body.velocity.x) > GameConfig.player.idleVelocityThreshold) {
@@ -352,7 +320,6 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  // ---- ENEMY AI ----
   private updateEnemies(time: number): void {
     this.enemies.getChildren().forEach((obj) => {
       const enemy = obj as Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
@@ -362,28 +329,28 @@ export class GameScene extends Phaser.Scene {
 
       const dist = Phaser.Math.Distance.Between(enemy.x, enemy.y, this.player.x, this.player.y);
 
-      if (dist < GameConfig.enemy.attackRange && time - ai.lastAttackTime > GameConfig.enemy.attackCooldown) {
+      if (dist < GameConfig.level2Enemy.attackRange && time - ai.lastAttackTime > GameConfig.level2Enemy.attackCooldown) {
         ai.state = 'attack';
         ai.isAttacking = true;
         ai.lastAttackTime = time;
         enemy.setVelocityX(0);
-        enemy.play('enemy_attack', true);
+        enemy.play('level2_enemy_attack', true);
         enemy.once('animationcomplete', () => {
           ai.isAttacking = false;
           ai.state = 'patrol';
         });
-      } else if (dist < GameConfig.enemy.chaseRange) {
+      } else if (dist < GameConfig.level2Enemy.chaseRange) {
         ai.state = 'chase';
         const dir = this.player.x < enemy.x ? -1 : 1;
         ai.direction = dir;
-        enemy.setVelocityX(dir * GameConfig.enemy.chaseSpeed);
+        enemy.setVelocityX(dir * GameConfig.level2Enemy.chaseSpeed);
         enemy.setFlipX(dir < 0);
-        if (enemy.anims.currentAnim?.key !== 'enemy_run') {
-          enemy.play('enemy_run', true);
+        if (enemy.anims.currentAnim?.key !== 'level2_enemy_run') {
+          enemy.play('level2_enemy_run', true);
         }
       } else {
         ai.state = 'patrol';
-        enemy.setVelocityX(ai.direction * GameConfig.enemy.speed);
+        enemy.setVelocityX(ai.direction * GameConfig.level2Enemy.speed);
         enemy.setFlipX(ai.direction < 0);
 
         if (enemy.x <= ai.patrolLeft) {
@@ -392,113 +359,121 @@ export class GameScene extends Phaser.Scene {
           ai.direction = -1;
         }
 
-        if (enemy.anims.currentAnim?.key !== 'enemy_walk') {
-          enemy.play('enemy_walk', true);
+        if (enemy.anims.currentAnim?.key !== 'level2_enemy_walk') {
+          enemy.play('level2_enemy_walk', true);
         }
       }
-      logger.debug('Enemy AI state:', ai.state, 'for enemy at', enemy.x, enemy.y);
+      logger.debug('Level2 enemy AI state:', ai.state, 'for enemy at', enemy.x, enemy.y);
     });
   }
 
-  // ---- BOSS SYSTEM ----
-  private checkBossSpawn(): void {
-    if (this.bossActive || this.killCount < GameConfig.boss.triggerKills) return;
+  // ---- FINAL BOSS SYSTEM ----
+  private checkFinalBossSpawn(): void {
+    if (this.finalBossActive || this.killCount < GameConfig.levels.level2.enemyCount) return;
 
-    logger.info('Spawning boss after', this.killCount, 'kills');
-    this.spawnBoss();
+    logger.info('Spawning final boss after', this.killCount, 'kills');
+    this.spawnFinalBoss();
   }
 
-  private spawnBoss(): void {
-    this.bossActive = true;
+  private spawnFinalBoss(): void {
+    this.finalBossActive = true;
     const height = this.cameras.main.height;
-    const groundY = height - GameConfig.world.groundYOffset;
+    const groundY = height - Level2Config.groundYOffset;
 
-    this.boss = this.physics.add.sprite(GameConfig.boss.spawnX, groundY + GameConfig.boss.spawnYOffset, 'char-green-1', 0) as Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
-    this.boss.setScale(GameConfig.boss.scale);
-    this.boss.setCollideWorldBounds(true);
-    this.boss.body.setSize(GameConfig.boss.bodyWidth, GameConfig.boss.bodyHeight);
-    this.boss.body.setOffset(GameConfig.boss.bodyOffsetX, GameConfig.boss.bodyOffsetY);
-    this.boss.setDepth(11);
-    this.boss.setFlipX(true);
+    this.finalBoss = this.physics.add.sprite(GameConfig.finalBoss.spawnX, groundY + GameConfig.finalBoss.spawnYOffset, 'char-purple-1', 0) as Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
+    this.finalBoss.setScale(GameConfig.finalBoss.scale);
+    this.finalBoss.setCollideWorldBounds(true);
+    this.finalBoss.body.setSize(GameConfig.finalBoss.bodyWidth, GameConfig.finalBoss.bodyHeight);
+    this.finalBoss.body.setOffset(GameConfig.finalBoss.bodyOffsetX, GameConfig.finalBoss.bodyOffsetY);
+    this.finalBoss.setDepth(11);
+    this.finalBoss.setFlipX(true);
+    this.finalBoss.setTint(0x8800ff);
 
-    const data: BossData = {
+    const data: FinalBossData = {
       state: 'idle',
-      health: GameConfig.boss.health,
+      health: GameConfig.finalBoss.health,
+      maxHealth: GameConfig.finalBoss.health,
       direction: -1,
       lastAttackTime: 0,
       lastChargeTime: 0,
       isAttacking: false,
       isCharging: false,
       isDead: false,
+      ragePhase: 0,
     };
-    this.boss.setData('ai', data);
+    this.finalBoss.setData('ai', data);
 
-    // Reuse existing platforms group for boss collision
-    this.physics.add.collider(this.boss, this.platforms);
+    this.physics.add.collider(this.finalBoss, this.platforms);
+    this.physics.add.overlap(this.player, this.finalBoss, this.handleFinalBossCombat as any, undefined, this);
 
-    // Add overlap with player for combat
-    this.physics.add.overlap(this.player, this.boss, this.handleBossCombat as any, undefined, this);
+    this.finalBossHealthBar.setVisible(true);
+    this.finalBossNameText.setVisible(true);
 
-    // Show boss HUD
-    this.bossHealthBar.setVisible(true);
-    this.bossNameText.setVisible(true);
-
-    // Spawn animation
-    this.boss.setAlpha(0);
+    this.finalBoss.setAlpha(0);
     this.tweens.add({
-      targets: this.boss,
+      targets: this.finalBoss,
       alpha: 1,
       duration: 1000,
       ease: 'Power2',
     });
 
-    // Screen shake
-    this.cameras.main.shake(500, 0.01);
+    this.cameras.main.shake(600, 0.015);
 
-    // Boss entrance text
-    const warningText = this.add.text(this.cameras.main.width / 2, this.cameras.main.height / 2, 'BOSS APPEARS!', {
-      fontSize: '32px', color: '#ff4444', fontStyle: 'bold',
+    const warningText = this.add.text(this.cameras.main.width / 2, this.cameras.main.height / 2, 'FINAL BOSS APPEARS!', {
+      fontSize: '36px', color: '#aa44ff', fontStyle: 'bold',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(200);
     this.tweens.add({
       targets: warningText,
       alpha: 0,
       scaleX: 1.5,
       scaleY: 1.5,
-      duration: 1500,
+      duration: 1800,
       ease: 'Power2',
       onComplete: () => warningText.destroy(),
     });
   }
 
-  private updateBoss(time: number): void {
-    if (!this.boss || !this.bossActive) return;
+  private updateFinalBoss(time: number): void {
+    if (!this.finalBoss || !this.finalBossActive) return;
 
-    const ai = this.boss.getData('ai') as BossData;
+    const ai = this.finalBoss.getData('ai') as FinalBossData;
     if (ai.isDead) return;
     if (ai.isCharging) return;
     if (ai.isAttacking) return;
 
-    const dist = Phaser.Math.Distance.Between(this.boss.x, this.boss.y, this.player.x, this.player.y);
+    const dist = Phaser.Math.Distance.Between(this.finalBoss.x, this.finalBoss.y, this.player.x, this.player.y);
 
-    // Charge attack logic
-    if (dist < GameConfig.boss.chaseRange && time - ai.lastChargeTime > GameConfig.boss.chargeCooldown) {
+    // Rage mechanic: check if health dropped below a new threshold
+    const healthPct = ai.health / ai.maxHealth;
+    const newRagePhase = Math.floor((1 - healthPct) / GameConfig.finalBoss.rageThreshold);
+    if (newRagePhase > ai.ragePhase) {
+      ai.ragePhase = newRagePhase;
+      logger.warn('Final Boss entered rage phase', ai.ragePhase);
+      this.finalBoss.setTint(0xff0044);
+      this.time.delayedCall(300, () => this.finalBoss!.setTint(0x8800ff));
+      this.cameras.main.shake(300, 0.01);
+    }
+
+    const speedMultiplier = 1 + ai.ragePhase * (GameConfig.finalBoss.rageSpeedMultiplier - 1);
+
+    // Charge attack
+    if (dist < GameConfig.finalBoss.chaseRange && time - ai.lastChargeTime > GameConfig.finalBoss.chargeCooldown) {
       ai.isCharging = true;
       ai.lastChargeTime = time;
       ai.state = 'attack';
 
-      const dir = this.player.x < this.boss.x ? -1 : 1;
+      const dir = this.player.x < this.finalBoss.x ? -1 : 1;
       ai.direction = dir;
-      this.boss.setFlipX(dir < 0);
-      this.boss.play('boss_attack', true);
+      this.finalBoss.setFlipX(dir < 0);
+      this.finalBoss.play('final_boss_attack', true);
 
-      // Charge!
-      this.boss.setVelocityX(dir * GameConfig.boss.chargeSpeed);
-      this.boss.setVelocityY(-100);
+      this.finalBoss.setVelocityX(dir * GameConfig.finalBoss.chargeSpeed * speedMultiplier);
+      this.finalBoss.setVelocityY(-100);
 
-      this.time.delayedCall(GameConfig.boss.chargeDuration, () => {
+      this.time.delayedCall(GameConfig.finalBoss.chargeDuration, () => {
         if (!ai.isDead) {
           ai.isCharging = false;
-          this.boss!.setVelocityX(0);
+          this.finalBoss!.setVelocityX(0);
           ai.state = 'idle';
         }
       });
@@ -506,17 +481,17 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Regular attack
-    if (dist < GameConfig.boss.attackRange && time - ai.lastAttackTime > GameConfig.boss.attackCooldown) {
+    if (dist < GameConfig.finalBoss.attackRange && time - ai.lastAttackTime > GameConfig.finalBoss.attackCooldown) {
       ai.state = 'attack';
       ai.isAttacking = true;
       ai.lastAttackTime = time;
-      this.boss.setVelocityX(0);
+      this.finalBoss.setVelocityX(0);
 
-      const dir = this.player.x < this.boss.x ? -1 : 1;
+      const dir = this.player.x < this.finalBoss.x ? -1 : 1;
       ai.direction = dir;
-      this.boss.setFlipX(dir < 0);
-      this.boss.play('boss_attack', true);
-      this.boss.once('animationcomplete', () => {
+      this.finalBoss.setFlipX(dir < 0);
+      this.finalBoss.play('final_boss_attack', true);
+      this.finalBoss.once('animationcomplete', () => {
         ai.isAttacking = false;
         ai.state = 'idle';
       });
@@ -524,137 +499,131 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Chase
-    if (dist < GameConfig.boss.chaseRange) {
+    if (dist < GameConfig.finalBoss.chaseRange) {
       ai.state = 'chase';
-      const dir = this.player.x < this.boss.x ? -1 : 1;
+      const dir = this.player.x < this.finalBoss.x ? -1 : 1;
       ai.direction = dir;
-      this.boss.setVelocityX(dir * GameConfig.boss.chaseSpeed);
-      this.boss.setFlipX(dir < 0);
-      if (this.boss.anims.currentAnim?.key !== 'boss_run') {
-        this.boss.play('boss_run', true);
+      this.finalBoss.setVelocityX(dir * GameConfig.finalBoss.chaseSpeed * speedMultiplier);
+      this.finalBoss.setFlipX(dir < 0);
+      if (this.finalBoss.anims.currentAnim?.key !== 'final_boss_run') {
+        this.finalBoss.play('final_boss_run', true);
       }
     } else {
-      // Idle/walk in place
       ai.state = 'idle';
-      this.boss.setVelocityX(0);
-      if (this.boss.anims.currentAnim?.key !== 'boss_idle') {
-        this.boss.play('boss_idle', true);
+      this.finalBoss.setVelocityX(0);
+      if (this.finalBoss.anims.currentAnim?.key !== 'final_boss_idle') {
+        this.finalBoss.play('final_boss_idle', true);
       }
     }
   }
 
-  private handleBossCombat(
+  private handleFinalBossCombat(
     playerObj: Phaser.Types.Physics.Arcade.GameObjectWithBody,
     bossObj: Phaser.Types.Physics.Arcade.GameObjectWithBody
   ): void {
     const boss = bossObj as Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
-    const ai = boss.getData('ai') as BossData;
+    const ai = boss.getData('ai') as FinalBossData;
     if (ai.isDead) return;
 
     if (this.time.now < this.invincibleUntil) return;
 
     if ((ai.isAttacking || ai.isCharging) && this.playerState !== 'shield' && this.playerState !== 'damage') {
-      this.playerTakeDamage(GameConfig.boss.damageDealt, boss);
+      this.playerTakeDamage(GameConfig.finalBoss.damageDealt, boss);
     }
   }
 
-  private attackBossInRange(range: number): void {
-    if (!this.boss || !this.bossActive) return;
+  private attackFinalBossInRange(range: number): void {
+    if (!this.finalBoss || !this.finalBossActive) return;
 
-    const ai = this.boss.getData('ai') as BossData;
+    const ai = this.finalBoss.getData('ai') as FinalBossData;
     if (ai.isDead) return;
 
-    const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, this.boss.x, this.boss.y);
-    const bossIsRight = this.boss.x > this.player.x;
+    const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, this.finalBoss.x, this.finalBoss.y);
+    const bossIsRight = this.finalBoss.x > this.player.x;
     const facingRight = !this.player.flipX;
     const facingBoss = (bossIsRight && facingRight) || (!bossIsRight && !facingRight);
 
     if (dist < range && facingBoss) {
-      this.bossTakeDamage(GameConfig.enemy.damageDealt);
+      this.finalBossTakeDamage(GameConfig.level2Enemy.damageDealt);
     }
   }
 
-  private bossTakeDamage(amount: number): void {
-    if (!this.boss) return;
+  private finalBossTakeDamage(amount: number): void {
+    if (!this.finalBoss) return;
 
-    const ai = this.boss.getData('ai') as BossData;
+    const ai = this.finalBoss.getData('ai') as FinalBossData;
     ai.health -= amount;
 
-    const dir = this.boss.x > this.player.x ? 1 : -1;
-    this.boss.setVelocityX(dir * GameConfig.boss.knockbackX);
-    this.boss.setVelocityY(GameConfig.boss.knockbackY);
+    const dir = this.finalBoss.x > this.player.x ? 1 : -1;
+    this.finalBoss.setVelocityX(dir * GameConfig.finalBoss.knockbackX);
+    this.finalBoss.setVelocityY(GameConfig.finalBoss.knockbackY);
 
-    this.boss.setTint(0xff0000);
-    this.time.delayedCall(GameConfig.boss.tintDuration, () => this.boss!.clearTint());
+    this.finalBoss.setTint(0xff0000);
+    this.time.delayedCall(GameConfig.finalBoss.tintDuration, () => this.finalBoss!.setTint(0x8800ff));
 
     if (ai.health <= 0) {
-      logger.warn('Boss defeated!');
+      logger.warn('Final Boss defeated!');
       ai.isDead = true;
       ai.state = 'death';
-      this.boss.play('boss_death', true);
-      this.boss.body.enable = false;
-      this.score += GameConfig.boss.deathScore;
+      this.finalBoss.play('final_boss_death', true);
+      this.finalBoss.body.enable = false;
+      this.score += GameConfig.finalBoss.deathScore;
       this.scoreText.setText(`Score: ${this.score}`);
 
-      // Hide boss HUD
-      this.bossHealthBar.setVisible(false);
-      this.bossNameText.setVisible(false);
+      this.finalBossHealthBar.setVisible(false);
+      this.finalBossNameText.setVisible(false);
 
-      // Level complete text
-      const levelCompleteText = this.add.text(this.cameras.main.width / 2, this.cameras.main.height / 2, 'LEVEL 1 CLEARED!', {
+      const victoryText = this.add.text(this.cameras.main.width / 2, this.cameras.main.height / 2, 'LEVEL 2 CLEARED!', {
         fontSize: '36px', color: '#44ff44', fontStyle: 'bold',
       }).setOrigin(0.5).setScrollFactor(0).setDepth(200);
       this.tweens.add({
-        targets: levelCompleteText,
+        targets: victoryText,
         alpha: 0,
         scaleX: 1.3,
         scaleY: 1.3,
         duration: 2000,
         ease: 'Power2',
-        onComplete: () => levelCompleteText.destroy(),
+        onComplete: () => victoryText.destroy(),
       });
 
-      this.time.delayedCall(GameConfig.boss.deathDelay, () => {
-        this.boss!.destroy();
-        this.boss = null;
-        this.bossActive = false;
-        logger.info('Transitioning to LevelTransitionScene with health:', this.playerHealth, 'score:', this.score);
-        this.scene.start('LevelTransitionScene', { playerHealth: this.playerHealth, score: this.score, level: 2 });
+      this.time.delayedCall(GameConfig.finalBoss.deathDelay, () => {
+        this.finalBoss!.destroy();
+        this.finalBoss = null;
+        this.finalBossActive = false;
+        logger.info('Transitioning to VictoryScene with score:', this.score);
+        this.scene.start('VictoryScene', { score: this.score });
       });
     } else {
       ai.isAttacking = false;
-      this.boss.play('boss_damage', true);
-      this.boss.once('animationcomplete', () => {
-        if (!ai.isDead) this.boss!.play('boss_idle', true);
+      this.finalBoss.play('final_boss_damage', true);
+      this.finalBoss.once('animationcomplete', () => {
+        if (!ai.isDead) this.finalBoss!.play('final_boss_idle', true);
       });
     }
   }
 
-  private drawBossHealthBar(): void {
-    if (!this.bossActive || !this.boss) return;
+  private drawFinalBossHealthBar(): void {
+    if (!this.finalBossActive || !this.finalBoss) return;
 
-    const ai = this.boss.getData('ai') as BossData;
+    const ai = this.finalBoss.getData('ai') as FinalBossData;
     if (ai.isDead) return;
 
-    this.bossHealthBar.clear();
-    const w = 300;
-    const h = 12;
+    this.finalBossHealthBar.clear();
+    const w = 320;
+    const h = 14;
     const x = (this.cameras.main.width - w) / 2;
-    const y = 40;
+    const y = 44;
 
-    // Background
-    this.bossHealthBar.fillStyle(0x333333, 0.9);
-    this.bossHealthBar.fillRect(x, y, w, h);
+    this.finalBossHealthBar.fillStyle(0x333333, 0.9);
+    this.finalBossHealthBar.fillRect(x, y, w, h);
 
-    // Health
-    const pct = ai.health / GameConfig.boss.health;
-    const color = pct > 0.5 ? 0xff4444 : pct > 0.25 ? 0xff8844 : 0xff0000;
-    this.bossHealthBar.fillStyle(color, 1);
-    this.bossHealthBar.fillRect(x, y, w * pct, h);
+    const pct = ai.health / ai.maxHealth;
+    const color = pct > 0.5 ? 0xaa44ff : pct > 0.25 ? 0xff44aa : 0xff0044;
+    this.finalBossHealthBar.fillStyle(color, 1);
+    this.finalBossHealthBar.fillRect(x, y, w * pct, h);
 
-    // Border
-    this.bossHealthBar.lineStyle(2, 0xffffff, 0.8);
-    this.bossHealthBar.strokeRect(x, y, w, h);
+    this.finalBossHealthBar.lineStyle(2, 0xffffff, 0.8);
+    this.finalBossHealthBar.strokeRect(x, y, w, h);
   }
 
   // ---- COMBAT ----
@@ -688,7 +657,7 @@ export class GameScene extends Phaser.Scene {
       const facingEnemy = (enemyIsRight && facingRight) || (!enemyIsRight && !facingRight);
 
       if (dist < range && facingEnemy) {
-        this.enemyTakeDamage(enemy, ai, GameConfig.enemy.damageDealt);
+        this.enemyTakeDamage(enemy, ai, GameConfig.level2Enemy.damageDealt);
       }
     });
   }
@@ -696,30 +665,30 @@ export class GameScene extends Phaser.Scene {
   private enemyTakeDamage(enemy: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody, ai: EnemyData, amount: number): void {
     ai.health -= amount;
     const dir = enemy.x > this.player.x ? 1 : -1;
-    enemy.setVelocityX(dir * GameConfig.enemy.knockbackX);
-    enemy.setVelocityY(GameConfig.enemy.knockbackY);
+    enemy.setVelocityX(dir * GameConfig.level2Enemy.knockbackX);
+    enemy.setVelocityY(GameConfig.level2Enemy.knockbackY);
 
     enemy.setTint(0xff0000);
-    this.time.delayedCall(GameConfig.enemy.tintDuration, () => enemy.clearTint());
+    this.time.delayedCall(GameConfig.level2Enemy.tintDuration, () => enemy.clearTint());
 
     if (ai.health <= 0) {
-      logger.warn('Enemy died at', enemy.x, enemy.y);
+      logger.warn('Level2 enemy died at', enemy.x, enemy.y);
       ai.isDead = true;
       ai.state = 'death';
-      enemy.play('enemy_death', true);
+      enemy.play('level2_enemy_death', true);
       enemy.body.enable = false;
-      this.score += GameConfig.enemy.deathScore;
+      this.score += GameConfig.level2Enemy.deathScore;
       this.scoreText.setText(`Score: ${this.score}`);
       this.killCount++;
-      this.checkBossSpawn();
-      this.time.delayedCall(GameConfig.enemy.deathDelay, () => {
+      this.checkFinalBossSpawn();
+      this.time.delayedCall(GameConfig.level2Enemy.deathDelay, () => {
         enemy.destroy();
       });
     } else {
       ai.isAttacking = false;
-      enemy.play('enemy_damage', true);
+      enemy.play('level2_enemy_damage', true);
       enemy.once('animationcomplete', () => {
-        if (!ai.isDead) enemy.play('enemy_idle', true);
+        if (!ai.isDead) enemy.play('level2_enemy_idle', true);
       });
     }
   }
@@ -747,13 +716,12 @@ export class GameScene extends Phaser.Scene {
         this.player.body.enable = false;
         this.time.delayedCall(GameConfig.player.restartDelay, () => {
           this.player.setAlpha(1);
-          this.scene.restart();
+          this.scene.restart({ playerHealth: GameConfig.player.maxHealth, score: this.score });
         });
       }
     });
   }
 
-  // ---- HUD ----
   private drawHealthBar(): void {
     this.healthBar.clear();
     const { healthBarX: x, healthBarY: y, healthBarWidth: w, healthBarHeight: h } = GameConfig.hud;

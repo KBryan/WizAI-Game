@@ -7,7 +7,7 @@ Create a new plan in specs/*.md to implement the `Feature` using the exact speci
 - IMPORTANT: You're writing a plan to implement a net new feature based on the `Feature` that will add value to the application.
 - IMPORTANT: The `Feature` describes the feature that will be implemented but remember we're not implementing a new feature, we're creating the plan that will be used to implement the feature based on the `Plan Format` below.
 - Create the plan in the `specs/*.md` file. Name it appropriately based on the `Feature`.
-- Use the `Plan Format` below to create the plan. 
+- Use the `Plan Format` below to create the plan.
 - Research the codebase to understand existing patterns, architecture, and conventions before planning the feature.
 - IMPORTANT: Replace every <placeholder> in the `Plan Format` with the requested value. Add as much detail as needed to implement the feature successfully.
 - Use your reasoning model: THINK HARD about the feature requirements, design, and implementation approach.
@@ -16,6 +16,8 @@ Create a new plan in specs/*.md to implement the `Feature` using the exact speci
 - If you need a new library, use `uv add` and be sure to report it in the `Notes` section of the `Plan Format`.
 - Respect requested files in the `Relevant Files` section.
 - Start your research by reading the `README.md` file.
+- **CRITICAL: You MUST NOT modify any source files during this command. Do NOT write or edit files in `src/`, `public/`, or any other source directory. This command is PLAN-ONLY.**
+- **CRITICAL: You MUST NOT run validation commands (tests, builds, type checks) during this command. Validation happens later during `/implement`.**
 
 ## Relevant Files
 
@@ -97,3 +99,4 @@ $ARGUMENTS
 ## Report
 - Summarize the work you've just done in a concise bullet point list.
 - Include a path to the plan you created in the `specs/*.md` file.
+- Confirm that zero source files were modified during this command.

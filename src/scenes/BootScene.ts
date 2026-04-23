@@ -68,12 +68,22 @@ export class BootScene extends Phaser.Scene {
     this.load.spritesheet('char-green-2', 'assets/characters/green/char_green_2.png', {
       frameWidth: 56, frameHeight: 56,
     });
+
+    // Level 2 enemy sprite sheets (purple)
+    this.load.spritesheet('char-purple-1', 'assets/characters/purple/char_purple_1.png', {
+      frameWidth: 56, frameHeight: 56,
+    });
+    this.load.spritesheet('char-purple-2', 'assets/characters/purple/char_purple_2.png', {
+      frameWidth: 56, frameHeight: 56,
+    });
   }
 
   create(): void {
     this.createAnimations('player', 'char-blue-1', 'char-blue-2');
     this.createAnimations('enemy', 'char-red-1', 'char-red-2');
     this.createAnimations('boss', 'char-green-1', 'char-green-2');
+    this.createAnimations('level2_enemy', 'char-purple-1', 'char-purple-2');
+    this.createAnimations('final_boss', 'char-purple-1', 'char-purple-2');
     logger.info('BootScene animations created, starting MenuScene');
     this.scene.start('MenuScene');
   }

@@ -129,6 +129,79 @@ describe('GameConfig', () => {
     });
   });
 
+  describe('boss', () => {
+    it('should have positive scale', () => {
+      expect(GameConfig.boss.scale).toBeGreaterThan(0);
+    });
+
+    it('should have health greater than regular enemy health', () => {
+      expect(GameConfig.boss.health).toBeGreaterThan(GameConfig.enemy.health);
+    });
+
+    it('should have positive chase speed', () => {
+      expect(GameConfig.boss.chaseSpeed).toBeGreaterThan(0);
+    });
+
+    it('should have chase range greater than attack range', () => {
+      expect(GameConfig.boss.chaseRange).toBeGreaterThan(GameConfig.boss.attackRange);
+    });
+
+    it('should have positive damage dealt', () => {
+      expect(GameConfig.boss.damageDealt).toBeGreaterThan(0);
+    });
+
+    it('should have positive knockback values (X positive, Y negative)', () => {
+      expect(GameConfig.boss.knockbackX).toBeGreaterThan(0);
+      expect(GameConfig.boss.knockbackY).toBeLessThan(0);
+    });
+
+    it('should have positive death delay', () => {
+      expect(GameConfig.boss.deathDelay).toBeGreaterThan(0);
+    });
+
+    it('should have positive attack cooldown', () => {
+      expect(GameConfig.boss.attackCooldown).toBeGreaterThan(0);
+    });
+
+    it('should have charge cooldown greater than attack cooldown', () => {
+      expect(GameConfig.boss.chargeCooldown).toBeGreaterThan(GameConfig.boss.attackCooldown);
+    });
+
+    it('should have positive charge speed', () => {
+      expect(GameConfig.boss.chargeSpeed).toBeGreaterThan(0);
+    });
+
+    it('should have positive charge duration', () => {
+      expect(GameConfig.boss.chargeDuration).toBeGreaterThan(0);
+    });
+
+    it('should have positive tint duration', () => {
+      expect(GameConfig.boss.tintDuration).toBeGreaterThan(0);
+    });
+
+    it('should have positive death score', () => {
+      expect(GameConfig.boss.deathScore).toBeGreaterThan(0);
+    });
+
+    it('should have positive body dimensions', () => {
+      expect(GameConfig.boss.bodyWidth).toBeGreaterThan(0);
+      expect(GameConfig.boss.bodyHeight).toBeGreaterThan(0);
+    });
+
+    it('should trigger after exactly 5 kills', () => {
+      expect(GameConfig.boss.triggerKills).toBe(5);
+    });
+
+    it('should have spawnX within world bounds', () => {
+      expect(GameConfig.boss.spawnX).toBeGreaterThan(0);
+      expect(GameConfig.boss.spawnX).toBeLessThanOrEqual(GameConfig.world.width);
+    });
+
+    it('should have death score greater than enemy death score', () => {
+      expect(GameConfig.boss.deathScore).toBeGreaterThan(GameConfig.enemy.deathScore);
+    });
+  });
+
   describe('camera', () => {
     it('should have follow lerp values between 0 and 1', () => {
       expect(GameConfig.camera.followLerpX).toBeGreaterThan(0);
