@@ -1,0 +1,39 @@
+# Agentic Engineering Framework — manifest.yml
+# Universal machine-readable project entry point
+# https://github.com/your-org/agentic-workflow
+
+framework_version: "2.0"
+
+project:
+  name: "WizAI-Game"
+  description: "2D pixel-art platformer built with Phaser 3 + TypeScript + Vite"
+  language: "TypeScript 5.x"
+  framework: "Phaser 3"
+  repository_type: "single"
+
+entry_points:
+  readme: "README.md"
+  agents: "AGENTS.md"
+  env: ".env"
+  manifest: "manifest.yml"
+
+paths:
+  source: "src/"
+  tests: "src/"
+  docs: "docs/"
+  scripts: ".adws/scripts/"
+  adws: ".adws/"
+
+# Service discovery for scripts/start.sh
+services:
+  frontend:
+    type: "node"
+    port: 3000
+    entry: "."
+
+# Validation commands (used by slash commands)
+validation:
+  test: "npm test"
+  build: "npm run build"
+  lint: "tsc --noEmit"
+  typecheck: "tsc --noEmit"

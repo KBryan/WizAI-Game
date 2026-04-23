@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { GameConfig } from '../config/GameConfig';
+import { logger } from '../utils/logger';
 import type { PlayerState, EnemyState } from '../types/states';
 
 export type { PlayerState, EnemyState };
@@ -48,6 +49,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
+    logger.info('GameScene create started');
+
     // Apply debug physics setting from localStorage
     try {
       const raw = localStorage.getItem(GameConfig.ui.localStorageKey);
@@ -296,6 +299,7 @@ export class GameScene extends Phaser.Scene {
 
   private changePlayerState(newState: PlayerState): void {
     if (this.playerState === newState) return;
+    logger.debug('Player state changed:', this.playerState, '->', newState);
     this.playerState = newState;
     const animMap: Record<PlayerState, string> = {
       idle: 'player_idle', run: 'player_run', jump: 'player_jump_fly',
@@ -356,6 +360,7 @@ export class GameScene extends Phaser.Scene {
           enemy.play('enemy_walk', true);
         }
       }
+      logger.debug('Enemy AI state:', ai.state, 'for enemy at', enemy.x, enemy.y);
     });
   }
 
@@ -366,7 +371,10 @@ export class GameScene extends Phaser.Scene {
   ): void {
     const enemy = enemyObj as Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
     const ai = enemy.getData('ai') as EnemyData;
-    if (ai.isDead) return;
+    if (ai.isDead) {
+      logger.error('Combat overlap with dead enemy');
+      return;
+    }
 
     if (this.time.now < this.invincibleUntil) return;
 
@@ -402,6 +410,7 @@ export class GameScene extends Phaser.Scene {
     this.time.delayedCall(GameConfig.enemy.tintDuration, () => enemy.clearTint());
 
     if (ai.health <= 0) {
+      logger.warn('Enemy died at', enemy.x, enemy.y);
       ai.isDead = true;
       ai.state = 'death';
       enemy.play('enemy_death', true);
@@ -423,6 +432,7 @@ export class GameScene extends Phaser.Scene {
   private playerTakeDamage(amount: number, source: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody): void {
     this.invincibleUntil = this.time.now + GameConfig.player.invincibilityDuration;
     this.playerHealth = Math.max(0, this.playerHealth - amount);
+    logger.info('Player took damage, health:', this.playerHealth);
 
     const dir = this.player.x > source.x ? 1 : -1;
     this.player.setVelocityX(dir * GameConfig.player.knockbackX);
