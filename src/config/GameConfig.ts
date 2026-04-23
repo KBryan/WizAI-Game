@@ -72,4 +72,8 @@ export const GameConfig = {
   ui: {
     localStorageKey: 'wizai_settings',
   },
+  debug: {
+    logLevel: (import.meta.env.PROD ? 'warn' : 'debug') as 'debug' | 'info' | 'warn' | 'error',
+    enabled: import.meta.env.DEV ? true : false,
+  },
 } as const;

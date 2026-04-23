@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { MenuConfig } from '../config/MenuConfig';
+import { logger } from '../utils/logger';
 
 export class MenuScene extends Phaser.Scene {
   private bgLayer1!: Phaser.GameObjects.TileSprite;
@@ -19,6 +20,7 @@ export class MenuScene extends Phaser.Scene {
   }
 
   create(): void {
+    logger.info('MenuScene create started');
     const { width, height } = this.cameras.main;
 
     // ---- PARALLAX BACKGROUND ----
@@ -180,6 +182,7 @@ export class MenuScene extends Phaser.Scene {
     });
 
     hitArea.on('pointerdown', () => {
+      logger.info('Transitioning to GameScene');
       this.cameras.main.fadeOut(MenuConfig.playButton.fadeOutDuration, 0, 0, 0);
       this.cameras.main.once('camerafadeoutcomplete', () => {
         this.scene.start('GameScene');
@@ -363,6 +366,7 @@ export class MenuScene extends Phaser.Scene {
       isOn = !isOn;
       drawToggle();
       onChange(isOn);
+      logger.debug('Settings toggled:', label, '->', isOn);
     });
     this.settingsContainer.add(toggleHit);
   }

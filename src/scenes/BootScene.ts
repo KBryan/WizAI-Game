@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { logger } from '../utils/logger';
 
 export class BootScene extends Phaser.Scene {
   constructor() {
@@ -6,6 +7,8 @@ export class BootScene extends Phaser.Scene {
   }
 
   preload(): void {
+    logger.info('BootScene preload started');
+
     // Progress bar
     const width = this.cameras.main.width;
     const height = this.cameras.main.height;
@@ -25,6 +28,7 @@ export class BootScene extends Phaser.Scene {
     }).setOrigin(0.5);
 
     this.load.on('progress', (value: number) => {
+      logger.debug('Asset loading progress:', value);
       progressBar.clear();
       progressBar.fillStyle(0x3a86ff, 1);
       progressBar.fillRect(barX + 4, barY + 4, (barW - 8) * value, barH - 8);
@@ -61,6 +65,7 @@ export class BootScene extends Phaser.Scene {
   create(): void {
     this.createAnimations('player', 'char-blue-1', 'char-blue-2');
     this.createAnimations('enemy', 'char-red-1', 'char-red-2');
+    logger.info('BootScene animations created, starting MenuScene');
     this.scene.start('MenuScene');
   }
 

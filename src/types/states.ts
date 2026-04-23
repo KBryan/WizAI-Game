@@ -1,3 +1,5 @@
+import { logger } from '../utils/logger';
+
 export type PlayerState = 'idle' | 'run' | 'jump' | 'fall' | 'attack' | 'crouch' | 'damage' | 'death' | 'spell' | 'shield';
 export type EnemyState = 'idle' | 'patrol' | 'chase' | 'attack' | 'damage' | 'death';
 
@@ -30,12 +32,20 @@ export const EnemyStateTransitions: Record<EnemyState, EnemyState[]> = {
 
 /** Check if a state transition is valid */
 export function isValidPlayerTransition(from: PlayerState, to: PlayerState): boolean {
-  return PlayerStateTransitions[from].includes(to);
+  const valid = PlayerStateTransitions[from].includes(to);
+  if (!valid) {
+    logger.warn('Invalid player state transition:', from, '->', to);
+  }
+  return valid;
 }
 
 /** Check if an enemy state transition is valid */
 export function isValidEnemyTransition(from: EnemyState, to: EnemyState): boolean {
-  return EnemyStateTransitions[from].includes(to);
+  const valid = EnemyStateTransitions[from].includes(to);
+  if (!valid) {
+    logger.warn('Invalid enemy state transition:', from, '->', to);
+  }
+  return valid;
 }
 
 /**
