@@ -1,7 +1,12 @@
 import Phaser from 'phaser';
 import { GameConfig } from '../config/GameConfig';
+import type { LevelTheme, TokenType } from '../config/GameConfig';
 import { logger } from '../utils/logger';
 import type { PlayerState, EnemyState } from '../types/states';
+import { BossSystem } from '../systems/BossSystem';
+import { TokenSystem } from '../systems/TokenSystem';
+import { ParallaxManager } from '../systems/ParallaxManager';
+import { LevelManager } from '../systems/LevelManager';
 
 export type { PlayerState, EnemyState };
 
@@ -10,7 +15,7 @@ interface EnemyData {
   health: number;
   patrolLeft: number;
   patrolRight: number;
-  direction: number; // 1 = right, -1 = left
+  direction: number;
   lastAttackTime: number;
   isAttacking: boolean;
   isDead: boolean;
@@ -27,29 +32,52 @@ export class GameScene extends Phaser.Scene {
   private isAttacking = false;
   private playerHealth: number = GameConfig.player.maxHealth;
   private playerMaxHealth: number = GameConfig.player.maxHealth;
-  private invincibleUntil = 0; // timestamp when i-frames expire
+  private invincibleUntil = 0;
   private isInvincibleBlinking = false;
 
-  // Parallax layers
-  private bgLayer1!: Phaser.GameObjects.TileSprite;
-  private bgLayer2!: Phaser.GameObjects.TileSprite;
-  private bgLayer3!: Phaser.GameObjects.TileSprite;
+  // Systems
+  private bossSystem!: BossSystem;
+  private tokenSystem!: TokenSystem;
+  private parallaxManager!: ParallaxManager;
+  private levelManager!: LevelManager;
 
   // Enemies
   private enemies!: Phaser.Physics.Arcade.Group;
+
+  // Platforms
+  private platforms!: Phaser.Physics.Arcade.StaticGroup;
 
   // HUD
   private healthBar!: Phaser.GameObjects.Graphics;
   private healthText!: Phaser.GameObjects.Text;
   private scoreText!: Phaser.GameObjects.Text;
+  private tokenText!: Phaser.GameObjects.Text;
+  private levelText: Phaser.GameObjects.Text | null = null;
   private score = 0;
+  private bossTriggered = false;
+  private levelComplete = false;
 
   constructor() {
     super({ key: 'GameScene' });
   }
 
+  init(data: { levelIndex?: number }) {
+    const levelIndex = data.levelIndex ?? 0;
+    (GameConfig.level as { current: number }).current = levelIndex;
+    this.score = 0;
+    this.playerHealth = GameConfig.player.maxHealth;
+    this.playerState = 'idle';
+    this.isAttacking = false;
+    this.invincibleUntil = 0;
+    this.isInvincibleBlinking = false;
+    this.bossTriggered = false;
+    this.levelComplete = false;
+    logger.info('GameScene init, level:', levelIndex);
+  }
+
   create(): void {
     logger.info('GameScene create started');
+    const levelIndex = GameConfig.level.current;
 
     // Apply debug physics setting from localStorage
     try {
@@ -61,51 +89,44 @@ export class GameScene extends Phaser.Scene {
       }
     } catch { /* ignore */ }
 
+    // Initialize level manager
+    this.levelManager = new LevelManager(levelIndex);
+    this.levelManager.generateLevel(this.cameras.main.height);
+
     const height = this.cameras.main.height;
-    const groundY = height - GameConfig.world.groundYOffset;
+    const groundY = this.levelManager.getGroundY();
+    const worldWidth = this.levelManager.getWorldWidth();
+    const theme = this.levelManager.getTheme();
 
     // ---- PARALLAX BACKGROUND ----
-    this.bgLayer1 = this.add.tileSprite(0, 0, this.cameras.main.width, height, 'bg-layer1')
-      .setOrigin(0, 0).setScrollFactor(0).setDepth(-30);
-    this.bgLayer2 = this.add.tileSprite(0, 0, this.cameras.main.width, height, 'bg-layer2')
-      .setOrigin(0, 0).setScrollFactor(0).setDepth(-20);
-    this.bgLayer3 = this.add.tileSprite(0, 0, this.cameras.main.width, height, 'bg-layer3')
-      .setOrigin(0, 0).setScrollFactor(0).setDepth(-10);
+    this.parallaxManager = new ParallaxManager(this);
+    this.parallaxManager.generateTextures(theme);
+    this.parallaxManager.createLayers();
 
     // ---- GROUND ----
     const groundGfx = this.add.graphics();
-    groundGfx.fillStyle(0x3a5a40);
-    groundGfx.fillRect(0, groundY, GameConfig.world.width, GameConfig.world.groundYOffset);
-    groundGfx.fillStyle(0x588157);
-    groundGfx.fillRect(0, groundY, GameConfig.world.width, 6);
+    const themeColors = GameConfig.parallax.themes[theme];
+    groundGfx.fillStyle(themeColors.groundColor);
+    groundGfx.fillRect(0, groundY, worldWidth, GameConfig.world.groundYOffset);
+    groundGfx.fillStyle(themeColors.groundTopColor);
+    groundGfx.fillRect(0, groundY, worldWidth, 6);
 
-    // Some floating platforms
-    const platformPositions = [
-      { x: 500, y: groundY - 100, w: 150 },
-      { x: 900, y: groundY - 70, w: 120 },
-      { x: 1300, y: groundY - 120, w: 180 },
-      { x: 1800, y: groundY - 90, w: 140 },
-      { x: 2200, y: groundY - 130, w: 160 },
-      { x: 2700, y: groundY - 80, w: 130 },
-    ];
-    const platforms = this.physics.add.staticGroup();
-
-    // Main ground
-    const mainGround = this.add.zone(GameConfig.world.width / 2, groundY + GameConfig.world.groundYOffset / 2, GameConfig.world.width, GameConfig.world.groundYOffset);
+    // ---- PLATFORMS ----
+    this.platforms = this.physics.add.staticGroup();
+    const mainGround = this.add.zone(worldWidth / 2, groundY + GameConfig.world.groundYOffset / 2, worldWidth, GameConfig.world.groundYOffset);
     this.physics.add.existing(mainGround, true);
-    platforms.add(mainGround);
+    this.platforms.add(mainGround);
 
-    // Floating platforms
-    for (const pp of platformPositions) {
+    const platformData = this.levelManager.getPlatforms();
+    for (const pp of platformData) {
       const platGfx = this.add.graphics();
       platGfx.fillStyle(0x4a6741);
       platGfx.fillRect(pp.x - pp.w / 2, pp.y, pp.w, 14);
       platGfx.fillStyle(0x6b8f5e);
       platGfx.fillRect(pp.x - pp.w / 2, pp.y, pp.w, 4);
-
       const platZone = this.add.zone(pp.x, pp.y + 7, pp.w, 14);
       this.physics.add.existing(platZone, true);
-      platforms.add(platZone);
+      this.platforms.add(platZone);
     }
 
     // ---- PLAYER ----
@@ -115,34 +136,23 @@ export class GameScene extends Phaser.Scene {
     this.player.body.setSize(GameConfig.player.bodyWidth, GameConfig.player.bodyHeight);
     this.player.body.setOffset(GameConfig.player.bodyOffsetX, GameConfig.player.bodyOffsetY);
     this.player.setDepth(10);
-
-    this.physics.add.collider(this.player, platforms);
+    this.physics.add.collider(this.player, this.platforms);
 
     // ---- ENEMIES ----
     this.enemies = this.physics.add.group();
-    const enemySpawnPoints = [
-      { x: 400, patrolL: 300, patrolR: 550 },
-      { x: 700, patrolL: 600, patrolR: 850 },
-      { x: 1100, patrolL: 1000, patrolR: 1250 },
-      { x: 1600, patrolL: 1500, patrolR: 1750 },
-      { x: 2100, patrolL: 2000, patrolR: 2250 },
-      { x: 2600, patrolL: 2500, patrolR: 2750 },
-    ];
-
-    for (let i = 0; i < GameConfig.enemy.count; i++) {
-      const sp = enemySpawnPoints[i];
+    const enemySpawns = this.levelManager.getEnemySpawns();
+    for (const sp of enemySpawns) {
       const enemy = this.physics.add.sprite(sp.x, groundY + GameConfig.enemy.spawnYOffset, 'char-red-1', 0) as Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
       enemy.setScale(GameConfig.enemy.scale);
       enemy.setCollideWorldBounds(true);
       enemy.body.setSize(GameConfig.enemy.bodyWidth, GameConfig.enemy.bodyHeight);
       enemy.body.setOffset(GameConfig.enemy.bodyOffsetX, GameConfig.enemy.bodyOffsetY);
       enemy.setDepth(9);
-
       const data: EnemyData = {
         state: 'patrol',
         health: GameConfig.enemy.health,
-        patrolLeft: sp.patrolL,
-        patrolRight: sp.patrolR,
+        patrolLeft: sp.patrolLeft,
+        patrolRight: sp.patrolRight,
         direction: 1,
         lastAttackTime: 0,
         isAttacking: false,
@@ -151,8 +161,16 @@ export class GameScene extends Phaser.Scene {
       enemy.setData('ai', data);
       this.enemies.add(enemy);
     }
+    this.physics.add.collider(this.enemies, this.platforms);
 
-    this.physics.add.collider(this.enemies, platforms);
+    // ---- TOKENS ----
+    this.tokenSystem = new TokenSystem(this);
+    const tokenSpawns = this.levelManager.getTokenSpawns();
+    const platPositions = platformData.map(p => ({ x: p.x, y: p.y, w: p.w }));
+    this.tokenSystem.spawnTokens(groundY, worldWidth, this.levelManager.getLevelData().tokenCount, platPositions);
+
+    // ---- BOSS SYSTEM ----
+    this.bossSystem = new BossSystem(this);
 
     // Player-enemy overlap for combat
     this.physics.add.overlap(this.player, this.enemies, this.handleCombat as any, undefined, this);
@@ -172,12 +190,12 @@ export class GameScene extends Phaser.Scene {
     this.player.play('player_idle');
 
     // ---- CAMERA ----
-    this.physics.world.setBounds(0, 0, GameConfig.world.width, height);
-    this.cameras.main.setBounds(0, 0, GameConfig.world.width, height);
+    this.physics.world.setBounds(0, 0, worldWidth, height);
+    this.cameras.main.setBounds(0, 0, worldWidth, height);
     this.cameras.main.startFollow(this.player, true, GameConfig.camera.followLerpX, GameConfig.camera.followLerpY);
     this.cameras.main.setDeadzone(GameConfig.camera.deadzoneWidth, GameConfig.camera.deadzoneHeight);
 
-    // ---- HUD (fixed to camera) ----
+    // ---- HUD ----
     this.healthBar = this.add.graphics().setScrollFactor(0).setDepth(100);
     this.healthText = this.add.text(16, 16, 'HP', {
       fontSize: '14px', color: '#ffffff', fontStyle: 'bold',
@@ -185,8 +203,45 @@ export class GameScene extends Phaser.Scene {
     this.scoreText = this.add.text(16, 44, 'Score: 0', {
       fontSize: '14px', color: '#ffffff',
     }).setScrollFactor(0).setDepth(100);
+    this.tokenText = this.add.text(GameConfig.hud.tokenCounterX, GameConfig.hud.tokenCounterY, '', {
+      fontSize: GameConfig.hud.tokenCounterFontSize,
+      color: GameConfig.hud.tokenCounterColor,
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 2,
+    }).setScrollFactor(0).setDepth(100);
 
     this.drawHealthBar();
+
+    // ---- LEVEL NAME DISPLAY ----
+    this.showLevelName(this.levelManager.getLevelName());
+
+    this.drawHealthBar();
+  }
+
+  private showLevelName(name: string): void {
+    const { width } = this.cameras.main;
+    this.levelText = this.add.text(width / 2, 80, name, {
+      fontFamily: 'Georgia, serif',
+      fontSize: '24px',
+      color: GameConfig.hud.levelNameColor,
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 3,
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(100).setAlpha(0);
+
+    this.tweens.add({
+      targets: this.levelText,
+      alpha: 1,
+      duration: 800,
+      ease: 'Power2',
+    });
+    this.tweens.add({
+      targets: this.levelText,
+      alpha: 0,
+      duration: GameConfig.hud.levelNameDuration,
+      delay: GameConfig.hud.levelNameDuration,
+    });
   }
 
   update(time: number, _delta: number): void {
@@ -195,16 +250,16 @@ export class GameScene extends Phaser.Scene {
     this.updateParallax();
     this.updatePlayer();
     this.updateEnemies(time);
+    this.updateBoss(time);
+    this.updateTokens();
     this.updateInvincibilityBlink(time);
     this.drawHealthBar();
+    this.checkWinCondition();
   }
 
   // ---- PARALLAX ----
   private updateParallax(): void {
-    const camX = this.cameras.main.scrollX;
-    this.bgLayer1.tilePositionX = camX * 0.1;
-    this.bgLayer2.tilePositionX = camX * 0.3;
-    this.bgLayer3.tilePositionX = camX * 0.6;
+    this.parallaxManager.update();
   }
 
   // ---- INVINCIBILITY BLINK ----
@@ -258,6 +313,7 @@ export class GameScene extends Phaser.Scene {
       this.playerState = 'attack';
       this.player.play('player_attack', true);
       this.attackEnemiesInRange(GameConfig.combat.playerAttackRange);
+      this.attackBossInRange(GameConfig.combat.playerAttackRange);
       return;
     }
 
@@ -268,6 +324,7 @@ export class GameScene extends Phaser.Scene {
       this.playerState = 'spell';
       this.player.play('player_spell', true);
       this.attackEnemiesInRange(GameConfig.combat.playerSpellRange);
+      this.attackBossInRange(GameConfig.combat.playerSpellRange);
       return;
     }
 
@@ -349,19 +406,119 @@ export class GameScene extends Phaser.Scene {
         ai.state = 'patrol';
         enemy.setVelocityX(ai.direction * GameConfig.enemy.speed);
         enemy.setFlipX(ai.direction < 0);
-
         if (enemy.x <= ai.patrolLeft) {
           ai.direction = 1;
         } else if (enemy.x >= ai.patrolRight) {
           ai.direction = -1;
         }
-
         if (enemy.anims.currentAnim?.key !== 'enemy_walk') {
           enemy.play('enemy_walk', true);
         }
       }
-      logger.debug('Enemy AI state:', ai.state, 'for enemy at', enemy.x, enemy.y);
     });
+  }
+
+  // ---- BOSS ----
+  private updateBoss(time: number): void {
+    if (!this.bossSystem.isActive()) {
+      // Check if player has reached boss area
+      const bossX = this.levelManager.getBossX();
+      if (this.bossSystem.shouldSpawnBoss(this.player.x, bossX) && !this.bossTriggered) {
+        this.bossTriggered = true;
+        this.bossSystem.showBossWarning(GameConfig.level.current);
+        const groundY = this.levelManager.getGroundY();
+        this.time.delayedCall(GameConfig.boss.warningDuration, () => {
+          if (this.bossSystem) {
+            this.bossSystem.spawnBoss(bossX + 150, groundY, GameConfig.level.current);
+          }
+        });
+      }
+      return;
+    }
+
+    this.bossSystem.update(time, this.player.x, this.player.y);
+
+    // Check boss-player collision
+    const boss = this.bossSystem.getBoss();
+    if (boss && boss.body) {
+      const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, boss.x, boss.y);
+      if (dist < GameConfig.boss.attackRange && this.playerState !== 'shield' && this.playerState !== 'damage' && this.time.now > this.invincibleUntil) {
+        const bossData = this.bossSystem.getBossData();
+        if (bossData && bossData.isAttacking) {
+          this.playerTakeDamage(GameConfig.boss.damageDealt, boss);
+        }
+      }
+    }
+
+    // Check projectile-player collision
+    this.physics.add.overlap(this.player, this.bossSystem.getProjectiles(), (playerObj, projObj) => {
+      const proj = projObj as Phaser.GameObjects.GameObject;
+      if (this.time.now > this.invincibleUntil) {
+        this.playerTakeDamage(this.bossSystem.getProjectileDamage(), this.player);
+      }
+      proj.destroy();
+    });
+  }
+
+  private attackBossInRange(range: number): void {
+    const boss = this.bossSystem.getBoss();
+    if (!boss) return;
+    const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, boss.x, boss.y);
+    const enemyIsRight = boss.x > this.player.x;
+    const facingRight = !this.player.flipX;
+    const facingEnemy = (enemyIsRight && facingRight) || (!enemyIsRight && !facingRight);
+
+    if (dist < range && facingEnemy) {
+      const damage = range <= GameConfig.combat.playerAttackRange ? 20 : 15; // melee vs spell
+      const dir = boss.x > this.player.x ? 1 : -1;
+      this.bossSystem.bossTakeDamage(damage, dir);
+      this.score += 10;
+    }
+  }
+
+  // ---- TOKENS ----
+  private updateTokens(): void {
+    const result = this.tokenSystem.update(this.time.now, this.player.x, this.player.y);
+    if (result.scoreGained > 0) {
+      this.score += result.scoreGained;
+    }
+    if (result.healthGained > 0) {
+      this.playerHealth = Math.min(this.playerMaxHealth, this.playerHealth + result.healthGained);
+    }
+    const stats = this.tokenSystem.getStats();
+    this.tokenText.setText(`${stats.collected}/${stats.total}`);
+  }
+
+  // ---- WIN CONDITION ----
+  private checkWinCondition(): void {
+    if (this.levelComplete) return;
+
+    // Boss defeated = level complete (if level has boss)
+    if (this.bossTriggered && this.bossSystem.isDefeated()) {
+      this.levelComplete = true;
+      this.score += GameConfig.boss.deathScore;
+      const stats = this.tokenSystem.getStats();
+
+      this.time.delayedCall(GameConfig.boss.deathDelay, () => {
+        if (this.levelManager.hasNextLevel()) {
+          // Transition to next level
+          this.cameras.main.fadeOut(GameConfig.transition.fadeDuration, 0, 0, 0);
+          this.cameras.main.once('camerafadeoutcomplete', () => {
+            this.scene.start('GameScene', { levelIndex: GameConfig.level.current + 1 });
+          });
+        } else {
+          // Victory!
+          this.cameras.main.fadeOut(GameConfig.transition.fadeDuration, 0, 0, 0);
+          this.cameras.main.once('camerafadeoutcomplete', () => {
+            this.scene.start('VictoryScene', {
+              score: this.score,
+              tokensCollected: stats.collected,
+              totalTokens: stats.total,
+            });
+          });
+        }
+      });
+    }
   }
 
   // ---- COMBAT ----
@@ -429,12 +586,13 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private playerTakeDamage(amount: number, source: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody): void {
+  private playerTakeDamage(amount: number, source: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody | Phaser.GameObjects.GameObject): void {
     this.invincibleUntil = this.time.now + GameConfig.player.invincibilityDuration;
     this.playerHealth = Math.max(0, this.playerHealth - amount);
     logger.info('Player took damage, health:', this.playerHealth);
 
-    const dir = this.player.x > source.x ? 1 : -1;
+    const sourceX = 'x' in source ? (source as { x: number }).x : this.player.x;
+    const dir = this.player.x > sourceX ? 1 : -1;
     this.player.setVelocityX(dir * GameConfig.player.knockbackX);
     this.player.setVelocityY(GameConfig.player.knockbackY);
 
@@ -452,7 +610,10 @@ export class GameScene extends Phaser.Scene {
         this.player.body.enable = false;
         this.time.delayedCall(GameConfig.player.restartDelay, () => {
           this.player.setAlpha(1);
-          this.scene.restart();
+          this.scene.start('GameOverScene', {
+            score: this.score,
+            levelName: this.levelManager.getLevelName(),
+          });
         });
       }
     });

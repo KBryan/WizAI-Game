@@ -65,12 +65,14 @@ export class BootScene extends Phaser.Scene {
   create(): void {
     this.createAnimations('player', 'char-blue-1', 'char-blue-2');
     this.createAnimations('enemy', 'char-red-1', 'char-red-2');
+    // Boss uses the same red enemy sprites but scaled larger
+    this.createAnimations('boss', 'char-red-1', 'char-red-2');
     logger.info('BootScene animations created, starting MenuScene');
     this.scene.start('MenuScene');
   }
 
   private createAnimations(prefix: string, sheet1Key: string, sheet2Key: string): void {
-    // Sheet 1 animations (8 cols × 11 rows = 88 frames)
+    // Sheet 1 animations
     const sheet1Anims = [
       { key: `${prefix}_idle`,         start: 0,  end: 5,  frameRate: 10, repeat: -1 },
       { key: `${prefix}_attack`,       start: 8,  end: 13, frameRate: 12, repeat: 0 },
@@ -94,7 +96,7 @@ export class BootScene extends Phaser.Scene {
       });
     }
 
-    // Sheet 2 animations (8 cols × 7 rows = 56 frames)
+    // Sheet 2 animations
     const sheet2Anims = [
       { key: `${prefix}_walk`,          start: 0,  end: 7,  frameRate: 10, repeat: -1 },
       { key: `${prefix}_wall_slide`,    start: 24, end: 27, frameRate: 10, repeat: -1 },

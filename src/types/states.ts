@@ -1,10 +1,14 @@
 import { logger } from '../utils/logger';
+import type { LevelTheme } from '../config/GameConfig';
 
 export type PlayerState = 'idle' | 'run' | 'jump' | 'fall' | 'attack' | 'crouch' | 'damage' | 'death' | 'spell' | 'shield';
 export type EnemyState = 'idle' | 'patrol' | 'chase' | 'attack' | 'damage' | 'death';
+export type BossState = 'idle' | 'chase' | 'attack' | 'projectile' | 'damage' | 'death' | 'enrage';
+export type BossPhase = 1 | 2 | 3;
 
 export const PlayerStates: readonly PlayerState[] = ['idle', 'run', 'jump', 'fall', 'attack', 'crouch', 'damage', 'death', 'spell', 'shield'] as const;
 export const EnemyStates: readonly EnemyState[] = ['idle', 'patrol', 'chase', 'attack', 'damage', 'death'] as const;
+export const BossStates: readonly BossState[] = ['idle', 'chase', 'attack', 'projectile', 'damage', 'death', 'enrage'] as const;
 
 /** Valid transitions for PlayerState: from -> set of valid target states */
 export const PlayerStateTransitions: Record<PlayerState, PlayerState[]> = {
@@ -30,6 +34,17 @@ export const EnemyStateTransitions: Record<EnemyState, EnemyState[]> = {
   death: [],
 };
 
+/** Valid transitions for BossState */
+export const BossStateTransitions: Record<BossState, BossState[]> = {
+  idle: ['chase', 'attack', 'projectile', 'damage', 'death', 'enrage'],
+  chase: ['attack', 'projectile', 'damage', 'death', 'enrage'],
+  attack: ['idle', 'chase', 'projectile', 'damage', 'death', 'enrage'],
+  projectile: ['idle', 'chase', 'damage', 'death', 'enrage'],
+  damage: ['idle', 'chase', 'attack', 'death', 'enrage'],
+  death: [],
+  enrage: ['chase', 'attack', 'projectile', 'damage', 'death'],
+};
+
 /** Check if a state transition is valid */
 export function isValidPlayerTransition(from: PlayerState, to: PlayerState): boolean {
   const valid = PlayerStateTransitions[from].includes(to);
@@ -48,9 +63,17 @@ export function isValidEnemyTransition(from: EnemyState, to: EnemyState): boolea
   return valid;
 }
 
+/** Check if a boss state transition is valid */
+export function isValidBossTransition(from: BossState, to: BossState): boolean {
+  const valid = BossStateTransitions[from].includes(to);
+  if (!valid) {
+    logger.warn('Invalid boss state transition:', from, '->', to);
+  }
+  return valid;
+}
+
 /**
  * Determine the next enemy state based on distance to player and current state.
- * Business logic extracted from GameScene.updateEnemies.
  */
 export function getNextEnemyState(
   current: EnemyState,
@@ -60,8 +83,6 @@ export function getNextEnemyState(
   isAttacking: boolean,
 ): EnemyState {
   if (isAttacking) return current;
-  // Using config values would require importing GameConfig;
-  // we accept them as part of the logical contract tested elsewhere
   const CHASE_RANGE = 200;
   const ATTACK_RANGE = 45;
   const ATTACK_COOLDOWN = 1200;
@@ -75,9 +96,21 @@ export function getNextEnemyState(
   }
 }
 
+/** Determine boss phase based on health percentage */
+export function getBossPhase(healthPercent: number, phases: readonly { healthPercent: number; attackPattern: string }[]): BossPhase {
+  for (let i = phases.length - 1; i >= 0; i--) {
+    if (healthPercent <= phases[i].healthPercent) {
+      // Phase 1 = easiest, higher index = harder
+      if (healthPercent <= (phases[2]?.healthPercent ?? 0.3)) return 3;
+      if (healthPercent <= (phases[1]?.healthPercent ?? 0.6)) return 2;
+      return 1;
+    }
+  }
+  return 1;
+}
+
 /**
  * Calculate damage after applying invincibility.
- * Returns the damage taken (0 if invincible) and whether invincibility was active.
  */
 export function calculateDamage(
   damageAmount: number,
@@ -117,4 +150,34 @@ export function isAttackInRange(
   if (distance >= range) return false;
   const targetIsRight = targetX > attackerX;
   return (targetIsRight && facingRight) || (!targetIsRight && !facingRight);
+}
+
+/** Calculate token collection effects */
+export function calculateTokenCollection(
+  tokenType: 'crystal' | 'coin' | 'heart',
+  currentScore: number,
+  currentHealth: number,
+  maxHealth: number,
+): { score: number; health: number } {
+  const tokenConfigs: Record<string, { score: number; health: number }> = {
+    crystal: { score: 50, health: 0 },
+    coin: { score: 10, health: 0 },
+    heart: { score: 0, health: 25 },
+  };
+  const config = tokenConfigs[tokenType];
+  return {
+    score: currentScore + config.score,
+    health: Math.min(maxHealth, currentHealth + config.health),
+  };
+}
+
+/** Level data interface */
+export interface LevelData {
+  name: string;
+  worldWidth: number;
+  bossX: number;
+  backgroundTheme: LevelTheme;
+  enemyCount: number;
+  tokenCount: number;
+  platformCount: number;
 }
