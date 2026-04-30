@@ -119,11 +119,30 @@ export class GameScene extends Phaser.Scene {
 
     const platformData = this.levelManager.getPlatforms();
     for (const pp of platformData) {
-      const platGfx = this.add.graphics();
-      platGfx.fillStyle(0x4a6741);
-      platGfx.fillRect(pp.x - pp.w / 2, pp.y, pp.w, 14);
+      // Tiled terrain platform with grass top
+      const tileWidth = 16;
+      const numTiles = Math.ceil(pp.w / tileWidth);
+      const platGfx = this.add.graphics().setDepth(6);
+
+      // Draw dirt body
+      for (let tx = 0; tx < numTiles; tx++) {
+        const tileX = pp.x - pp.w / 2 + tx * tileWidth;
+        platGfx.fillStyle(0x4a6741, 0.9);
+        platGfx.fillRect(tileX, pp.y + 4, tileWidth, 10);
+      }
+
+      // Grass top strip
       platGfx.fillStyle(0x6b8f5e);
       platGfx.fillRect(pp.x - pp.w / 2, pp.y, pp.w, 4);
+
+      // Grass tufts on top
+      for (let gx = 0; gx < pp.w; gx += Phaser.Math.Between(6, 12)) {
+        const grassX = pp.x - pp.w / 2 + gx + Phaser.Math.Between(0, 6);
+        const grassH = Phaser.Math.Between(3, 8);
+        platGfx.fillStyle(0x88b866);
+        platGfx.fillTriangle(grassX, pp.y, grassX + 1, pp.y - grassH, grassX + 3, pp.y);
+      }
+
       const platZone = this.add.zone(pp.x, pp.y + 7, pp.w, 14);
       this.physics.add.existing(platZone, true);
       this.platforms.add(platZone);
@@ -617,6 +636,55 @@ export class GameScene extends Phaser.Scene {
         });
       }
     });
+  }
+
+  // ---- TERRAIN DECORATIONS ----
+  private placeTerrainDecorations(groundY: number, worldWidth: number, theme: LevelTheme): void {
+    // Cave entries at specific positions
+    if (theme === 'forest') {
+      for (const ex of [worldWidth * 0.2, worldWidth * 0.55]) {
+        try {
+          const entryType = Phaser.Math.Between(1, 3);
+          this.add.sprite(ex, groundY - 16, `prop-entry-${entryType}`)
+            .setScale(1.5).setDepth(6).setAlpha(0.9);
+        } catch { /* entries not available */ }
+      }
+    }
+
+    // Water features near some platforms
+    const platforms = this.levelManager.getPlatforms();
+    for (let i = 0; i < platforms.length; i++) {
+      if (i % 3 === 0 && theme === 'forest') {
+        try {
+          const pp = platforms[i];
+          const waterX = pp.x + pp.w / 2 + 20;
+          this.add.sprite(waterX, groundY - 8, 'anim-water-surface')
+            .setScale(1.5).setDepth(8).play('water-surface');
+        } catch { /* water animation not available */ }
+      }
+    }
+
+    // Detail clusters from spritesheet
+    if (theme === 'forest' && this.textures.exists('prop-details-sheet')) {
+      for (let x = 100; x < worldWidth - 100; x += Phaser.Math.Between(200, 400)) {
+        try {
+          const frame = Phaser.Math.Between(0, 10);
+          this.add.sprite(x + Phaser.Math.Between(0, 30), groundY - 8, 'prop-details-sheet', frame)
+            .setScale(1.5).setDepth(7).setAlpha(Phaser.Math.FloatBetween(0.8, 1.0));
+        } catch { /* detail not available */ }
+      }
+    }
+
+    // Waterfall animations on platform edges
+    if (theme === 'forest' && this.textures.exists('terrain-main-tiles')) {
+      for (let i = 1; i < platforms.length; i += 4) {
+        try {
+          const pp = platforms[i];
+          this.add.sprite(pp.x - pp.w / 2 - 8, pp.y - 10, 'terrain-main-tiles', 9)
+            .setScale(1.5).setDepth(7).play('terrain-waterfall');
+        } catch { /* waterfall not available */ }
+      }
+    }
   }
 
   // ---- HUD ----

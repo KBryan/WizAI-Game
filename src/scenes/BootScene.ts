@@ -92,6 +92,19 @@ export class BootScene extends Phaser.Scene {
       frameWidth: 16, frameHeight: 16,
     });
 
+    // ── Terrain Tile Sprites ──
+    this.load.spritesheet('terrain-main-tiles', 'assets/Terrain/Grassland_Terrain_47Tiles.png', {
+      frameWidth: 16, frameHeight: 16,
+    });
+    this.load.spritesheet('terrain-extra-tiles', 'assets/Terrain/Grassland_Terrain_ExtraTiles.png', {
+      frameWidth: 16, frameHeight: 16,
+    });
+
+    // ── Details Spritesheet (mushrooms, flowers, etc.) ──
+    this.load.spritesheet('prop-details-sheet', 'assets/Props/GrassLand_Details.png', {
+      frameWidth: 16, frameHeight: 16,
+    });
+
     // ── Character sprite sheets ──
     this.load.spritesheet('char-blue-1', 'assets/characters/blue/char_blue_1.png', {
       frameWidth: 56, frameHeight: 56,
@@ -117,11 +130,13 @@ export class BootScene extends Phaser.Scene {
   }
 
   private createPropAnimations(): void {
+    // Butterfly
     this.anims.create({
       key: 'butterfly-fly',
       frames: this.anims.generateFrameNumbers('anim-butterfly', { start: 0, end: 3 }),
       frameRate: 8, repeat: -1,
     });
+    // Water effects
     this.anims.create({
       key: 'water-bubbles',
       frames: this.anims.generateFrameNumbers('anim-water-bubbles', { start: 0, end: 4 }),
@@ -130,6 +145,12 @@ export class BootScene extends Phaser.Scene {
     this.anims.create({
       key: 'water-surface',
       frames: this.anims.generateFrameNumbers('anim-water-surface', { start: 0, end: 9 }),
+      frameRate: 8, repeat: -1,
+    });
+    // Terrain tile animations (waterfall, water drip)
+    this.anims.create({
+      key: 'terrain-waterfall',
+      frames: this.anims.generateFrameNumbers('terrain-main-tiles', { start: 9, end: 12 }),
       frameRate: 8, repeat: -1,
     });
   }
