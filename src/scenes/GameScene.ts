@@ -100,8 +100,8 @@ export class GameScene extends Phaser.Scene {
 
     // ---- PARALLAX BACKGROUND ----
     this.parallaxManager = new ParallaxManager(this);
-    this.parallaxManager.generateTextures(theme);
-    this.parallaxManager.createLayers();
+    this.parallaxManager.generateTextures(theme, this.cameras.main.width, this.cameras.main.height);
+    this.parallaxManager.createLayers(theme);
 
     // ---- GROUND ----
     const groundGfx = this.add.graphics();
